@@ -350,7 +350,7 @@ thead th{font-size:11.5px!important;letter-spacing:.25px!important;}
 <script src="/assets/ams-ds.js?v=ams-20261026-fullrebrand-final" defer></script>
 <link rel="stylesheet" href="/assets/ams-sidebar-unify.css?v=ams-20261026-fullrebrand-final"/>
 <link rel="stylesheet" href="/assets/ams-motion.css?v=ams-20261026-fullrebrand-final"/><script src="/assets/ams-motion.js?v=ams-20261026-fullrebrand-final" defer></script>
-<link rel="stylesheet" href="/branding/runtime.css"/><script src="/branding/runtime.js" defer></script><link rel="stylesheet" href="/assets/ams-panel.css?v=ams-20261026-fullrebrand-final"/><script src="/assets/ams-cli-search.js?v=ams-20261026-fullrebrand-final" defer></script></head>
+<link rel="stylesheet" href="/branding/runtime.css"/><script src="/branding/runtime.js" defer></script><link rel="stylesheet" href="/assets/ams-panel.css?v=ams-20261026-fullrebrand-final"/><link rel="stylesheet" href="/assets/ams-unify.css?v=ams-20261026-unify1"/><script src="/assets/ams-cli-search.js?v=ams-20261026-fullrebrand-final" defer></script></head>
 <body class="ams-light ams-panel ams-ui">
 <div class="layout">
   <!-- ================= SIDEBAR ================= -->
@@ -2024,7 +2024,7 @@ function renderEntityStats(kind){
     if(kind==='client'){nameTag=`<span class="tag tag-cli">${x.name}</span>`;extra=`<td><span class="tag tag-mgr">${x.manager}</span></td><td><span class="tag tag-agt">${x.agent}</span></td>`;}
     else if(kind==='agent'){nameTag=`<span class="tag tag-agt">${x.name}</span>`;extra=`<td><span class="tag tag-mgr">${x.manager}</span></td><td><span class="tag tag-cli">${clientsOf('',x.name).length}</span></td>`;}
     else {nameTag=`<span class="tag tag-mgr">${x.name}</span>`;extra=`<td><span class="tag tag-agt">${agentsOf(x.name).length}</span></td><td><span class="tag tag-cli">${clientsOf(x.name).length}</span></td>`;}
-    return `<tr><td>${nameTag}</td>${extra}<td class="cell-money">${st.sms.toLocaleString()}</td><td class="cell-money" style="color:#4ade80">$ ${cleanDec(st.pay)}</td></tr>`;
+    return `<tr><td>${nameTag}</td>${extra}<td class="cell-money">${st.sms.toLocaleString()}</td><td class="cell-money" style="color:#047857">$ ${cleanDec(st.pay)}</td></tr>`;
   }).join('');
   document.getElementById(kind+'SInfo').textContent=`Showing ${list.length} of ${total} ${kind}s`;
 }
@@ -2090,7 +2090,7 @@ function renderDrillStats(kind){
   recs.forEach(r=>{const gk=r[key]+'|'+r.client;if(!map[gk])map[gk]={val:r[key],manager:r.manager,agent:r.agent,client:r.client,sms:0,pay:'0'};map[gk].sms+=r.sms;map[gk].pay=decAdd(map[gk].pay,r.pay);});
   let rows=Object.values(map).filter(x=>[x.val,x.manager,x.agent,x.client].join(' ').toLowerCase().includes(q));
   const pag=API.paginateRows('adminDrill'+kind,rows,len,kind+'SInfo',()=>renderDrillStats(kind));const total=pag.total;rows=pag.rows;
-  document.getElementById(kind+'SBody').innerHTML=rows.map(x=>`<tr><td><b>${kind==='number'?'<span class="mono">'+x.val+'</span>':x.val}</b></td><td><span class="tag tag-mgr">${x.manager}</span></td><td><span class="tag tag-agt">${x.agent}</span></td><td><span class="tag tag-cli">${x.client}</span></td><td class="cell-money">${x.sms.toLocaleString()}</td><td class="cell-money" style="color:#4ade80">$ ${cleanDec(x.pay)}</td></tr>`).join('')||`<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">No records found</td></tr>`;
+  document.getElementById(kind+'SBody').innerHTML=rows.map(x=>`<tr><td><b>${kind==='number'?'<span class="mono">'+x.val+'</span>':x.val}</b></td><td><span class="tag tag-mgr">${x.manager}</span></td><td><span class="tag tag-agt">${x.agent}</span></td><td><span class="tag tag-cli">${x.client}</span></td><td class="cell-money">${x.sms.toLocaleString()}</td><td class="cell-money" style="color:#047857">$ ${cleanDec(x.pay)}</td></tr>`).join('')||`<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">No records found</td></tr>`;
   document.getElementById(kind+'SInfo').textContent=`Showing ${rows.length} of ${total} rows`;
 }
 
@@ -2181,7 +2181,7 @@ function renderCliLimit(){
       <td class="mono"><b>${c.cli}</b></td>
       <td class="cell-money">${limit.toLocaleString()}</td>
       <td>${used.toLocaleString()}</td>
-      <td class="cell-money" style="color:${rem>0?'#4ade80':'#f87c8a'}">${rem.toLocaleString()}</td>
+      <td class="cell-money" style="color:${rem>0?'#047857':'#b91c1c'}">${rem.toLocaleString()}</td>
       <td><button class="icon-btn btn-red" onclick="delCliLimit(${c.id})"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></td></tr>`;
   }).join('')||`<tr><td colspan="5" class="muted" style="text-align:center;padding:24px">No CLI limits set yet</td></tr>`;
   const info=document.getElementById('climInfo'); if(info) info.textContent=`${(cliLimits||[]).length} CLI limits`;
@@ -3144,11 +3144,11 @@ function smEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;
 function smStatusTag(c){
   const st=String(c.status||'stopped');
   const map={
-    bound:['#0ABF7E','Connected'], listening:['#2FB6FF','Listening'],
-    connecting:['#FFB020','Connecting'], reconnecting:['#FFB020','Reconnecting'],
-    error:['#FF5C7A','Error'], stopped:['#8A9099','Stopped'], disconnected:['#FF5C7A','Disconnected']
+    bound:['#047857','Connected'], listening:['#0369a1','Listening'],
+    connecting:['#b45309','Connecting'], reconnecting:['#b45309','Reconnecting'],
+    error:['#b42318','Error'], stopped:['#64748b','Stopped'], disconnected:['#b42318','Disconnected']
   };
-  const [col,label]=map[st]||['#8A9099',st];
+  const [col,label]=map[st]||['#64748b',st];
   return `<span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;color:#fff;background:${col}">${label}</span>`;
 }
 
@@ -3185,7 +3185,7 @@ async function loadSmpp(){
     body.innerHTML=smppData.map(c=>{
       const st=sMap[c.id]||{};
       const endpoint=c.mode==='server'?('listen :'+(c.listen_port||'—')):((c.host||'—')+':'+(c.port||2775));
-      const err=(st.status==='error'&&st.last_error)?`<div class="hint" style="color:var(--ams-danger,#FF5C7A);margin-top:3px">${smEsc(st.last_error)}</div>`:'';
+      const err=(st.status==='error'&&st.last_error)?`<div class="hint" style="color:var(--ams-danger,#b42318);margin-top:3px">${smEsc(st.last_error)}</div>`:'';
       const q=st.queued?`<div class="hint">${st.queued} queued</div>`:'';
       const canSend=!(c.mode==='client'&&c.bind_type==='receiver');
       return `<tr>
@@ -3218,12 +3218,12 @@ async function loadSmppLogs(){
   try{
     const rows=await API.get('/smpp/logs');
     if(!rows.length){ b.innerHTML='<tr><td colspan="6" class="muted" style="text-align:center;padding:14px">No activity yet.</td></tr>'; return; }
-    const col={error:'#FF5C7A',warn:'#FFB020',info:'#0ABF7E'};
+    const col={error:'#b42318',warn:'#b45309',info:'#047857'};
     b.innerHTML=rows.slice(0,40).map(r=>`<tr>
       <td class="muted">${smEsc(String(r.created_at||'').slice(0,19))}</td>
       <td>${smEsc(r.connection_name||'—')}</td>
       <td>${smEsc(r.event||'')}</td>
-      <td><span style="color:${col[r.level]||'#8A9099'};font-weight:700">${smEsc(r.level||'')}</span></td>
+      <td><span style="color:${col[r.level]||'#64748b'};font-weight:700">${smEsc(r.level||'')}</span></td>
       <td>${smEsc(r.detail||'')}</td>
       <td class="mono muted">${smEsc(r.peer||'')}</td>
     </tr>`).join('');
@@ -3320,8 +3320,8 @@ async function testSmpp(){
     const r=await API.post('/smpp/connections/'+smEditId+'/test',{});
     el.innerHTML=r.ok
       ? `<span style="color:#0ABF7E;font-weight:700">✓ ${smEsc(r.message||r.note||'Reachable')}</span>`
-      : `<span style="color:#FF5C7A;font-weight:700">✗ ${smEsc(r.error||r.note||'Failed')}</span>`;
-  }catch(e){ el.innerHTML=`<span style="color:#FF5C7A;font-weight:700">✗ ${smEsc(e.message||e)}</span>`; }
+      : `<span style="color:#b42318;font-weight:700">✗ ${smEsc(r.error||r.note||'Failed')}</span>`;
+  }catch(e){ el.innerHTML=`<span style="color:#b42318;font-weight:700">✗ ${smEsc(e.message||e)}</span>`; }
 }
 
 async function toggleSmpp(id,on){
@@ -3360,7 +3360,7 @@ async function doSmppSend(){
     const r=await API.post('/smpp/connections/'+smSendId+'/send',{destination:dest,message:msg,source_addr:src});
     el.innerHTML=`<span style="color:#0ABF7E;font-weight:700">✓ Queued (id ${r.id}). It is sent as soon as the link is bound.</span>`;
     setTimeout(loadSmpp,1500);
-  }catch(e){ el.innerHTML=`<span style="color:#FF5C7A;font-weight:700">✗ ${smEsc(e.message||e)}</span>`; }
+  }catch(e){ el.innerHTML=`<span style="color:#b42318;font-weight:700">✗ ${smEsc(e.message||e)}</span>`; }
 }
 
 let apiProvidersData=[];
@@ -3408,7 +3408,7 @@ async function loadApiProviders(){
     body.innerHTML=apiProvidersData.map((p,i)=>{
       const cfg=apCfgOf(p); const st=sMap[p.id]||{};
       const authTxt={query:'API Key in URL',bearer:'Bearer Token',header:'Custom Header',none:'None'}[String(cfg.auth||'none')]||cfg.auth||'None';
-      const err=p.last_status==='error'&&p.last_error?`<div class="hint" style="color:var(--ams-danger,#FF5C7A);margin-top:3px">${apEsc(p.last_error)}</div>`:'';
+      const err=p.last_status==='error'&&p.last_error?`<div class="hint" style="color:var(--ams-danger,#b42318);margin-top:3px">${apEsc(p.last_error)}</div>`:'';
       return `<tr>
         <td><b>${apEsc(p.name)}</b><div class="hint">${st.seen_count!==undefined?st.seen_count+' records tracked':''}</div></td>
         <td class="mono"><span style="display:inline-block;max-width:260px;word-break:break-all;margin-right:20px;vertical-align:middle">${apEsc(cfg.url||'—')}</span></td>
@@ -3538,13 +3538,13 @@ async function testApiProvider(){
   try{
     const r=await API.post('/sync/test',body);
     if(r&&r.ok){
-      el.innerHTML=`<span style="color:var(--ams-ok,#25D9A4)"><b>✓ Connection OK</b> — ${r.fetched} record(s) returned.</span>`
+      el.innerHTML=`<span style="color:var(--ams-ok,#047857)"><b>✓ Connection OK</b> — ${r.fetched} record(s) returned.</span>`
         +(r.sample?`<div class="hint" style="margin-top:6px">Sample → number: <b>${apEsc(r.sample.number||'—')}</b> · CLI: <b>${apEsc(r.sample.cli||'—')}</b> · date: <b>${apEsc(r.sample.date||'—')}</b></div>`:'')
         +(r.fetched===0?'<div class="hint" style="margin-top:6px">The API responded but returned no records for the current time window.</div>':'');
     } else {
-      el.innerHTML=`<span style="color:var(--ams-danger,#FF5C7A)"><b>✗ Failed</b> — ${apEsc(r&&r.error?r.error:'unknown error')}</span>`;
+      el.innerHTML=`<span style="color:var(--ams-danger,#b42318)"><b>✗ Failed</b> — ${apEsc(r&&r.error?r.error:'unknown error')}</span>`;
     }
-  }catch(e){ el.innerHTML=`<span style="color:var(--ams-danger,#FF5C7A)"><b>✗ Failed</b> — ${apEsc(e.message||'')}</span>`; }
+  }catch(e){ el.innerHTML=`<span style="color:var(--ams-danger,#b42318)"><b>✗ Failed</b> — ${apEsc(e.message||'')}</span>`; }
 }
 
 async function toggleApiProvider(id,active){
