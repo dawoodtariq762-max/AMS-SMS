@@ -311,7 +311,7 @@ html body.ams-panel:is(.ams-light,.ams-dark) .tb1 .tb-btn{flex:0 0 auto!importan
 <script src="/assets/number-copy.js?v=ams-20261026-fullrebrand-final"></script>
 <link rel="stylesheet" href="/assets/ams-sidebar-unify.css?v=ams-20261026-fullrebrand-final"/>
 <link rel="stylesheet" href="/assets/ams-motion.css?v=ams-20261026-fullrebrand-final"/><script src="/assets/ams-motion.js?v=ams-20261026-fullrebrand-final" defer></script>
-<link rel="stylesheet" href="/branding/runtime.css"/><script src="/branding/runtime.js" defer></script><link rel="stylesheet" href="/assets/ams-panel.css?v=ams-20261026-fullrebrand-final"/></head>
+<link rel="stylesheet" href="/branding/runtime.css"/><script src="/branding/runtime.js" defer></script><link rel="stylesheet" href="/assets/ams-panel.css?v=ams-20261026-fullrebrand-final"/><link rel="stylesheet" href="/assets/ams-unify.css?v=ams-20261026-unify1"/></head>
 <body class="ams-light ams-panel ams-ui">
 <div class="layout">
   <!-- SIDEBAR -->
@@ -359,7 +359,7 @@ html body.ams-panel:is(.ams-light,.ams-dark) .tb1 .tb-btn{flex:0 0 auto!importan
 
     <!-- SMS NUMBERS (assigned, view only) -->
     <section class="page" id="page-numbers">
-      <div class="page-head"><div><h2>SMS Numbers <span class="ams-num-page-badge" style="font-size:14px;font-weight:600;color:var(--text,#e6ecfb);background:rgba(255,255,255,.08);padding:3px 9px;border-radius:6px;margin-left:10px;vertical-align:middle;display:inline-flex;align-items:center;gap:6px">Numbers: <span id="numPageCount">0</span> </span></h2><div class="breadcrumb"><b>My Panel</b> › Allocated Numbers</div></div>
+      <div class="page-head"><div><h2>SMS Numbers <span class="ams-num-page-badge" style="font-size:14px;font-weight:600;color:var(--text,#0f172a);background:var(--u-soft,#eef2f7);padding:3px 9px;border-radius:6px;margin-left:10px;vertical-align:middle;display:inline-flex;align-items:center;gap:6px">Numbers: <span id="numPageCount">0</span> </span></h2><div class="breadcrumb"><b>My Panel</b> › Allocated Numbers</div></div>
         <div class="head-actions"><span class="masknote">Only numbers allocated to you</span></div></div>
       <div class="toolbar"><div class="filter-row">
         <div id="numRangeContainer" style="display:inline-block;min-width:180px"><select class="sel-lg" id="numRange"><option value="">Select Range</option></select></div>
@@ -779,7 +779,7 @@ async function copyCurrentPageNumbers(btn){
     const target = btn || null;
     if (target) {
       const origHtml = target.innerHTML;
-      target.innerHTML = '<span style="font-size:12px;color:#10b981;font-weight:600">Copied ✓</span>';
+      target.innerHTML = '<span style="font-size:12px;color:#047857;font-weight:600">Copied ✓</span>';
       setTimeout(() => { target.innerHTML = origHtml; }, 1500);
     }
   } catch (err) {

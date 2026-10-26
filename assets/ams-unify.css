@@ -19,12 +19,12 @@
   --u-brand-d:#1d4ed8;
   --u-brand-soft:#e8f0fe;
 
-  --u-side:#0f172a;
-  --u-side-2:#162036;
-  --u-side-text:#cbd5e1;
-  --u-side-muted:#8ea0bd;
-  --u-side-hover:rgba(255,255,255,.07);
-  --u-side-line:rgba(255,255,255,.09);
+  --u-side:#ffffff;
+  --u-side-2:#f8fafc;
+  --u-side-text:#334155;
+  --u-side-muted:#64748b;
+  --u-side-hover:#eef2f7;
+  --u-side-line:#e2e8f0;
 
   /* semantic: solid (white text) + tint (dark text) — all >= 4.5:1 */
   --u-ok:#047857;     --u-ok-bg:#e6f7ef;   --u-ok-bd:#b6e6cf;   --u-ok-tx:#065f46;
@@ -65,11 +65,10 @@ html body.ams-panel.ams-light .sidebar,html body.ams-panel.ams-light .rail,html 
 }
 html body.ams-panel.ams-light .sb-brand,html body.ams-panel.ams-light .rail-brand,html body.ams-panel.ams-light .brand,
 html body.ams-panel.ams-light .brand-text{border-bottom:1px solid var(--u-side-line)!important;}
-html body.ams-panel.ams-light :is(.sidebar,.rail,.side) :is(.sb-brand h1,.brand h1,.brand b,.brand-text h1){color:#fff!important;}
+html body.ams-panel.ams-light :is(.sidebar,.rail,.side) :is(.sb-brand h1,.brand h1,.brand b,.brand-text h1){color:var(--u-ink)!important;}
 html body.ams-panel.ams-light :is(.sidebar,.rail,.side) :is(.sb-brand small,.brand small,.brand .muted,.brand-text small){color:var(--u-side-muted)!important;}
 html body.ams-panel.ams-light .sb-section,html body.ams-panel.ams-light .sb-sec,html body.ams-panel.ams-light .sec{color:var(--u-side-muted)!important;}
-html body.ams-panel.ams-light :is(.sidebar,.rail,.side) :is(.sb-logo,.logo){
-  background:var(--u-brand)!important;border:1px solid rgba(255,255,255,.18)!important;}
+html body.ams-panel.ams-light :is(.sidebar,.rail,.side) :is(.sb-logo,.logo){background:transparent!important;border:0!important;}
 html body.ams-panel.ams-light .sidebar .nav-item,html body.ams-panel.ams-light .sidebar .sub-item,
 html body.ams-panel.ams-light .sidebar .tab,html body.ams-panel.ams-light .sidebar .item,
 html body.ams-panel.ams-light .rail .ritem,html body.ams-panel.ams-light .rail .rsubitem,
@@ -83,7 +82,7 @@ html body.ams-panel.ams-light .sidebar .nav-item:hover,html body.ams-panel.ams-l
 html body.ams-panel.ams-light .sidebar .tab:hover,html body.ams-panel.ams-light .sidebar .item:hover,
 html body.ams-panel.ams-light .rail .ritem:hover,html body.ams-panel.ams-light .rail .rsubitem:hover,
 html body.ams-panel.ams-light .side .item:hover{
-  background:var(--br-sidebar-hover-bg,var(--u-side-hover))!important;color:#fff!important;
+  background:var(--br-sidebar-hover-bg,var(--u-side-hover))!important;color:var(--u-ink)!important;
 }
 html body.ams-panel.ams-light .sidebar .nav-item.active,html body.ams-panel.ams-light .sidebar .sub-item.active,
 html body.ams-panel.ams-light .sidebar .tab.active,html body.ams-panel.ams-light .sidebar .item.active,
