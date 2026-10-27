@@ -42,6 +42,16 @@ body.ams-light.ams-panel :is(.hamburger,.mgr-topbar-menu):hover{background:#eaf5
 body.ams-dark.ams-panel :is(.hamburger,.mgr-topbar-menu){background:#16233a;border-color:#31445f;color:#cbd5e1;}
 body.ams-dark.ams-panel :is(.hamburger,.mgr-topbar-menu):hover{background:#1d2c42;border-color:#38bdf8;color:#f1f5f9;}
 
+/* While the mobile drawer is open, AMSNav temporarily body-mounts the same
+   hamburger so the drawer cannot cover its own close control. */
+@media(max-width:900px){
+  body.ams-panel .ams-ui-sb-float{
+    position:fixed!important;top:10px!important;
+    left:min(220px,calc(100vw - 52px))!important;z-index:80!important;
+    box-shadow:0 10px 24px rgba(6,12,24,.3)!important;
+  }
+}
+
 /* Dimming overlay: Admin's #overlay, Client's #sbOverlay and Manager's
    #mgrMobileOverlay had no background at all, so an open mobile menu floated over
    live content with no visual separation. Agent had none, so api.js creates

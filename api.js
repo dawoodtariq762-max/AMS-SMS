@@ -751,6 +751,40 @@
       return this.narrow() ? document.body.classList.contains('ams-ui-sb-open')
                            : !document.body.classList.contains('ams-ui-sb-collapsed');
     },
+    /* The off-canvas sidebar covers the top bar's left edge, hiding the very
+       button that opened it. While the narrow drawer is open, temporarily
+       place that same button at body level just outside the drawer; restore
+       it to its original top-bar position on close. Events stay attached. */
+    placeButtons: function(p, floating){
+      p.buttons.forEach(function(b){
+        if (floating) {
+          if (b.classList.contains('ams-ui-sb-float') || !b.parentNode) return;
+          try { if (window.getComputedStyle(b).display === 'none') return; } catch(e){}
+          b.__amsSbHome = { parent: b.parentNode, next: b.nextSibling };
+          b.classList.add('ams-ui-sb-float');
+          document.body.appendChild(b);
+        } else if (b.classList.contains('ams-ui-sb-float')) {
+          b.classList.remove('ams-ui-sb-float');
+          const home = b.__amsSbHome;
+          if (home && home.parent && document.body.contains(home.parent)) {
+            if (home.next && home.next.parentNode === home.parent) home.parent.insertBefore(b, home.next);
+            else home.parent.appendChild(b);
+          }
+          delete b.__amsSbHome;
+        }
+      });
+    },
+    collapseSubmenu: function(menu){
+      if (!menu) return;
+      menu.classList.remove('open');
+      menu.classList.remove('show');
+      const wrap = (typeof menu.closest === 'function') ? menu.closest('.dropwrap') : null;
+      const parent = (wrap && wrap.querySelector('.navtab')) || menu.previousElementSibling;
+      if (parent) {
+        parent.classList.remove('open');
+        if (parent.hasAttribute && parent.hasAttribute('aria-expanded')) parent.setAttribute('aria-expanded', 'false');
+      }
+    },
     apply: function(open){
       const p = this.find(); if (!p) return;
       const narrow = this.narrow();
@@ -767,6 +801,7 @@
         b.setAttribute('title', label);
         b.setAttribute('data-tip', label);
       });
+      this.placeButtons(p, !!open && narrow);
       try{ document.dispatchEvent(new CustomEvent('ams:sidebar',{detail:{open:!!open,narrow:narrow}})); }catch(e){}
     },
     open: function(){ this.apply(true); },
@@ -787,15 +822,19 @@
       /* Mobile only: close the off-canvas menu after a navigation selection, never
          when a dropdown parent is tapped just to expand/collapse its submenu (the
          parents also carry .nav-item, so matching classes used to close the bar).
-         Capture phase, so a panel handler that stops propagation cannot leave the
-         bar open after a submenu item is selected. Dropdown expansion and sidebar
-         visibility therefore stay separate states. */
-      p.nav.addEventListener('click', function(e){
+         Document capture, restricted to this nav, because the page-link overlay
+         handler also runs at document capture and stops the event before it can
+         reach a nav-level listener (notably on Agent submenu items). Dropdown
+         expansion and sidebar visibility therefore stay separate states. */
+      document.addEventListener('click', function(e){
         if (!self.narrow()) return;
         const t = e.target;
-        if (!t || typeof t.closest !== 'function') return;
+        if (!t || typeof t.closest !== 'function' || !p.nav.contains(t)) return;
         if (t.closest('[onclick*="toggleSub"], [onclick*="toggleDrop"], [aria-haspopup="true"]')) return;
-        if (t.closest('[data-page], a[href]')) self.close();
+        if (t.closest('[data-page], a[href]')) {
+          self.collapseSubmenu(t.closest('.submenu, .rsub, .dropmenu'));
+          self.close();
+        }
       }, true);
       document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && self.narrow()) self.close(); });
       let rt = null;

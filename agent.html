@@ -322,7 +322,7 @@ thead th{font-size:11.5px!important;letter-spacing:.25px!important;}
 <!-- FINAL POLISH 2A/2B/2C/2D/2E: shared panel chrome (hamburger + sidebar,
      sun/moon theme toggle, filter alignment contract, heading contrast,
      Terms and Conditions dialog, dark dropdown paint). Loaded last. -->
-<link rel="stylesheet" href="/assets/ams-chrome.css?v=ams-20261026-fullrebrand-final"/>
+<link rel="stylesheet" href="/assets/ams-chrome.css?v=ams-20261027-three-fixes1"/>
 <link rel="stylesheet" href="/assets/ams-ds.css?v=ams-20261026-fullrebrand-final"/>
   <link rel="stylesheet" href="/assets/ams-sidebar-unify.css?v=ams-20261026-fullrebrand-final"/>
 <script src="/assets/ams-ds.js?v=ams-20261026-fullrebrand-final" defer></script>
@@ -330,7 +330,7 @@ thead th{font-size:11.5px!important;letter-spacing:.25px!important;}
 
 <script src="/assets/number-copy.js?v=ams-20261026-fullrebrand-final"></script>
 <link rel="stylesheet" href="/assets/ams-motion.css?v=ams-20261026-fullrebrand-final"/><script src="/assets/ams-motion.js?v=ams-20261026-fullrebrand-final" defer></script>
-<link rel="stylesheet" href="/branding/runtime.css"/><script src="/branding/runtime.js" defer></script><link rel="stylesheet" href="/assets/ams-panel.css?v=ams-20261026-fullrebrand-final"/><link rel="stylesheet" href="/assets/ams-unify.css?v=ams-20261026-unify1"/><script src="/assets/ams-cli-search.js?v=ams-20261026-fullrebrand-final" defer></script></head>
+<link rel="stylesheet" href="/branding/runtime.css"/><script src="/branding/runtime.js" defer></script><link rel="stylesheet" href="/assets/ams-panel.css?v=ams-20261026-fullrebrand-final"/><link rel="stylesheet" href="/assets/ams-unify.css?v=ams-20261026-unify2"/><script src="/assets/ams-cli-search.js?v=ams-20261026-fullrebrand-final" defer></script></head>
 <body class="ams-light ams-panel ams-ui">
 <div class="layout">
   <!-- ===== ICON RAIL ===== -->
@@ -339,7 +339,6 @@ thead th{font-size:11.5px!important;letter-spacing:.25px!important;}
     <div class="brand-text"><h1 data-brand="name">AMS SMS</h1><small>Agent Panel</small></div>
     <nav class="rail-nav sb-nav">
       <div class="ritem active nav-item" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><span class="lbl">Dashboard</span></div>
-      <a class="ritem nav-item" href="/chat" target="_blank" rel="noopener" title="Chat (opens in a new tab)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="lbl">Chat</span></a>
       <div class="ritem nav-item" data-page="extapi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></svg><span class="lbl">REST API</span></div>
 
       <div class="ritem nav-item" id="pSms" onclick="toggleSub('sSms','pSms')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span class="lbl">SMS Numbers</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></div>
@@ -363,6 +362,7 @@ thead th{font-size:11.5px!important;letter-spacing:.25px!important;}
       </div>
       <div class="ritem nav-item" data-page="payment"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><span class="lbl">Payment</span><span class="ams-nav-lock" id="payNavLock" style="margin-left:auto;font-size:12px;opacity:0.85"></span></div>
     <div class="ritem nav-item" data-page="creditNotes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 3h10l4 4v14H5z"/><path d="M14 3v5h5M8 12h8M8 16h6"/></svg><span class="lbl">Credit Notes</span></div>
+      <a class="ritem nav-item" href="/chat" target="_blank" rel="noopener" title="Chat (opens in a new tab)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="lbl">Chat</span></a>
 </nav>
   </aside>
 
@@ -670,7 +670,7 @@ thead th{font-size:11.5px!important;letter-spacing:.25px!important;}
   </div>
 </div>
 
-<script src="/api.js?v=ams-20261026-fullrebrand-final"></script>
+<script src="/api.js?v=ams-20261027-three-fixes1"></script>
 <script>
 if(window.API){ API.guard('agent'); }
 /* P21: Security Lock for Chat and Payment */
