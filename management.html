@@ -1068,17 +1068,20 @@ Nigeria"></textarea><div class="hint">Default rates will be NA. You can edit pay
       <div class="form-group"><label>Status</label><select id="apActiveSel"><option value="1">Enabled</option><option value="0">Disabled</option></select></div>
     </div>
     <div class="form-group"><label>Base URL <span class="req">*</span></label><input type="text" id="apUrl" placeholder="http://51.77.216.195/crapi/lamix/viewstats" /><div class="hint">Full endpoint URL without query parameters.</div></div>
+    <div class="form-group"><button type="button" class="btn btn-green btn-sm" onclick="apApplyZyPreset()">Use ZY SMS settings</button><div class="hint">Fills the Zivastats endpoint, Basic Auth, relative-seconds window, pagination and field mapping. Your username, password and extra filters are not changed.</div></div>
     <div class="form-grid">
       <div class="form-group"><label>Authentication Method</label>
         <select id="apAuth" onchange="apAuthChange()">
           <option value="query">API Key in URL (query parameter)</option>
           <option value="bearer">Bearer Token (Authorization header)</option>
           <option value="header">Custom Header</option>
+          <option value="basic">Basic Auth (username + password)</option>
           <option value="none">No Authentication</option>
         </select></div>
       <div class="form-group" id="apAuthFieldGrp"><label id="apAuthFieldLabel">Query Parameter Name</label><input type="text" id="apAuthField" placeholder="token" /></div>
     </div>
     <div class="form-group" id="apTokenGrp"><label>API Token / Key</label><input type="text" id="apToken" placeholder="Paste the provider API key" /><div class="hint" id="apTokenHint">Stored in the database. Leave the masked value unchanged to keep the existing key.</div><div class="hint">Any key format works — plain, ending in <b>=</b> or <b>==</b>, or containing <b>+ /</b>. You may also paste the full request URL or <b>token=VALUE</b>; extra text is removed automatically.</div></div>
+    <div class="form-group" id="apBasicPassGrp" style="display:none"><label>Basic Auth Password</label><input type="password" id="apAuthPassword" placeholder="API password" autocomplete="new-password" /><div class="hint" id="apBasicPassHint">Stored in the database. Leave the masked value unchanged to keep the existing password.</div></div>
     <div class="form-group"><label>HTTP Method</label><select id="apMethod"><option value="GET">GET</option><option value="POST">POST</option></select></div>
     <div class="section-title" style="margin:14px 0 8px">Request Parameters</div>
     <div class="form-grid">
@@ -1102,8 +1105,17 @@ Nigeria"></textarea><div class="hint">Default rates will be NA. You can edit pay
     </div>
     <div class="form-grid">
       <div class="form-group"><label>Overlap Window (seconds)</label><input type="number" id="apOverlap" value="30" min="0" max="3600" /><div class="hint">Re-checks this many seconds back so no SMS is missed. Duplicates are blocked automatically.</div></div>
-      <div class="form-group"><label>Response Array Path</label><input type="text" id="apRecPath" placeholder="data" /><div class="hint">Where the records array is, e.g. <b>data</b>.</div></div>
+      <div class="form-group"><label>Response Array Path</label><input type="text" id="apRecPath" placeholder="data" /><div class="hint">Where the records array is, e.g. <b>data</b>. Leave blank when the API returns a root JSON array, as ZY SMS does.</div></div>
     </div>
+    <div class="form-grid">
+      <div class="form-group"><label>Relative Window Parameter (optional)</label><input type="text" id="apWindowParam" placeholder="seconds — ZY SMS only" /><div class="hint">For APIs that accept “last N seconds” instead of date parameters.</div></div>
+      <div class="form-group"><label>Max Window (seconds)</label><input type="number" id="apWindowMax" placeholder="3600" min="1" max="86400" /><div class="hint">ZY SMS maximum is 3600 seconds.</div></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-group"><label>Page Parameter (optional)</label><input type="text" id="apPageParam" placeholder="page — ZY SMS only" /><div class="hint">When set, all response pages are fetched automatically.</div></div>
+      <div class="form-group"><label>Max Pages</label><input type="number" id="apMaxPages" value="20" min="1" max="100" /></div>
+    </div>
+    <div class="form-group"><label>Extra Query Parameters (optional)</label><input type="text" id="apExtraParams" placeholder="partition_crm_id_client=...&group=..." /><div class="hint">Fixed provider filters in <b>name=value&amp;name=value</b> format. Leave blank if the API user already returns only the required records.</div></div>
     <div class="section-title" style="margin:14px 0 8px">Field Mapping <span class="muted" style="font-weight:500">(provider field → <span data-brand-replace="name">AMS SMS</span> field)</span></div>
     <div class="form-grid">
       <div class="form-group"><label>Number</label><input type="text" id="apMapNumber" placeholder="num" /></div>
@@ -3375,11 +3387,45 @@ function apAuthChange(){
   const lbl=document.getElementById('apAuthFieldLabel');
   const fld=document.getElementById('apAuthField');
   const tok=document.getElementById('apTokenGrp');
+  const basicPass=document.getElementById('apBasicPassGrp');
   if(!grp||!lbl||!fld||!tok) return;
+  if(basicPass) basicPass.style.display='none';
   if(v==='query'){ grp.style.display=''; lbl.textContent='Query Parameter Name'; fld.placeholder='token'; if(!fld.value)fld.value='token'; tok.style.display=''; }
   else if(v==='header'){ grp.style.display=''; lbl.textContent='Header Name'; fld.placeholder='X-API-Key'; if(!fld.value||fld.value==='token')fld.value='X-API-Key'; tok.style.display=''; }
   else if(v==='bearer'){ grp.style.display='none'; tok.style.display=''; }
+  else if(v==='basic'){ grp.style.display=''; lbl.textContent='Basic Auth Username'; fld.placeholder='API username'; if(fld.value==='token'||fld.value==='X-API-Key')fld.value=''; tok.style.display='none'; if(basicPass)basicPass.style.display=''; }
   else { grp.style.display='none'; tok.style.display='none'; }
+}
+
+function apApplyZyPreset(){
+  const g=id=>document.getElementById(id);
+  const set=(id,v)=>{ const el=g(id); if(el) el.value=v; };
+  if(g('apName')&&!g('apName').value.trim()) set('apName','ZY SMS');
+  if(g('apProv')&&!g('apProv').value.trim()) set('apProv',g('apName')?.value||'ZY SMS');
+  set('apActiveSel','0');
+  set('apUrl','https://zivastats.com/rest/sms');
+  set('apAuth','basic');
+  apAuthChange();
+  set('apMethod','GET');
+  set('apFromParam','');
+  set('apToParam','');
+  set('apRecParam','per-page');
+  set('apRecords','500');
+  set('apRecPath','');
+  set('apWindowParam','seconds');
+  set('apWindowMax','3600');
+  set('apPageParam','page');
+  set('apMaxPages','20');
+  set('apInterval','15');
+  set('apOverlap','120');
+  set('apMapNumber','destination_addr');
+  set('apMapCli','source_addr');
+  set('apMapMessage','short_message');
+  set('apMapDate','start_stamp');
+  set('apMapPayout','');
+  set('apMapRef','');
+  const el=g('apTestResult');
+  if(el) el.textContent='ZY SMS settings applied. Enter the Basic Auth username/password, click Test Connection, then Save Provider.';
 }
 
 function apStatusTag(p){
@@ -3408,7 +3454,7 @@ async function loadApiProviders(){
     document.getElementById('apErrText').textContent=errs?'Check the error column below':'Providers in error state';
     body.innerHTML=apiProvidersData.map((p,i)=>{
       const cfg=apCfgOf(p); const st=sMap[p.id]||{};
-      const authTxt={query:'API Key in URL',bearer:'Bearer Token',header:'Custom Header',none:'None'}[String(cfg.auth||'none')]||cfg.auth||'None';
+      const authTxt={query:'API Key in URL',bearer:'Bearer Token',header:'Custom Header',basic:'Basic Auth',none:'None'}[String(cfg.auth||'none')]||cfg.auth||'None';
       const err=p.last_status==='error'&&p.last_error?`<div class="hint" style="color:var(--ams-danger,#b42318);margin-top:3px">${apEsc(p.last_error)}</div>`:'';
       return `<tr>
         <td><b>${apEsc(p.name)}</b><div class="hint">${st.seen_count!==undefined?st.seen_count+' records tracked':''}</div></td>
@@ -3466,15 +3512,21 @@ function openApiProviderModal(i){
   g('apActiveSel').value=p?(p.active?'1':'0'):'1';
   g('apUrl').value=cfg.url||'';
   g('apAuth').value=cfg.auth||'query';
-  g('apAuthField').value=cfg.auth==='header'?(cfg.auth_header||'X-API-Key'):(cfg.auth_query||'token');
+  g('apAuthField').value=cfg.auth==='basic'?(cfg.auth_username||''):cfg.auth==='header'?(cfg.auth_header||'X-API-Key'):(cfg.auth_query||'token');
   g('apToken').value=cfg.token||'';
+  const bpEl=g('apAuthPassword'); if(bpEl) bpEl.value=cfg.auth_password||'';
   g('apMethod').value=cfg.method||'GET';
   g('apFromParam').value=cfg.from_param||cfg.since_param||'dt1';
   g('apToParam').value=cfg.to_param||'dt2';
   g('apDateFmt').value=cfg.since_format||'sql';
   g('apRecParam').value=cfg.records_param||cfg.limit_param||'records';
   g('apRecords').value=cfg.records||cfg.limit||50;
-  g('apRecPath').value=cfg.records_path||'data';
+  g('apRecPath').value=(cfg.records_path!==undefined?cfg.records_path:'data');
+  const wpEl=g('apWindowParam'); if(wpEl) wpEl.value=cfg.window_param||'';
+  const wmEl=g('apWindowMax'); if(wmEl) wmEl.value=cfg.window_max_seconds||cfg.max_window_seconds||'';
+  const ppEl=g('apPageParam'); if(ppEl) ppEl.value=cfg.page_param||'';
+  const mpEl=g('apMaxPages'); if(mpEl) mpEl.value=cfg.max_pages||20;
+  const exEl=g('apExtraParams'); if(exEl) exEl.value=cfg.extra_params?Object.entries(cfg.extra_params).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&'):'';
   g('apInterval').value=p?p.interval_seconds:12;
   g('apOverlap').value=p?p.overlap_seconds:30;
   g('apMapNumber').value=map.number||'num';
@@ -3485,6 +3537,7 @@ function openApiProviderModal(i){
   g('apMapRef').value=map.ref||'';
   g('apTestResult').textContent='';
   g('apTokenHint').textContent=(p&&cfg.token===AP_MASK)?'Existing key is hidden. Leave unchanged to keep it, or type a new key to replace it.':'Stored in the database.';
+  const bph=g('apBasicPassHint'); if(bph) bph.textContent=(p&&cfg.auth_password===AP_MASK)?'Existing password is hidden. Leave unchanged to keep it, or type a new password to replace it.':'Stored in the database.';
   apAuthChange();
   document.getElementById('apiProviderModal').classList.add('show');
 }
@@ -3497,17 +3550,39 @@ function apBuildPayload(){
   const auth=g('apAuth')||'query';
   const cfg={
     url, method:g('apMethod')||'GET', auth,
-    token:document.getElementById('apToken').value.trim(),
+    token:auth==='basic'?'':document.getElementById('apToken').value.trim(),
     since_format:g('apDateFmt')||'sql',
-    records_path:g('apRecPath')||'data',
+    records_path:g('apRecPath'),
     records:Math.max(1,parseInt(g('apRecords')||'50',10)||50),
     map:{ number:g('apMapNumber')||'num', cli:g('apMapCli')||'cli', message:g('apMapMessage')||'message', date:g('apMapDate')||'dt' }
   };
   if(auth==='query') cfg.auth_query=g('apAuthField')||'token';
   if(auth==='header') cfg.auth_header=g('apAuthField')||'X-API-Key';
+  if(auth==='basic'){
+    cfg.auth_username=g('apAuthField');
+    cfg.auth_password=document.getElementById('apAuthPassword')?.value||'';
+    if(!cfg.auth_username){ alert('❌ Basic Auth username is required.'); return null; }
+    if(!cfg.auth_password){ alert('❌ Basic Auth password is required.'); return null; }
+  }
   if(g('apFromParam')) cfg.from_param=g('apFromParam');
   if(g('apToParam')) cfg.to_param=g('apToParam');
   if(g('apRecParam')) cfg.records_param=g('apRecParam');
+  if(g('apWindowParam')) cfg.window_param=g('apWindowParam');
+  const windowMax=parseInt(g('apWindowMax')||'',10); if(windowMax>0) cfg.window_max_seconds=windowMax;
+  if(g('apPageParam')) cfg.page_param=g('apPageParam');
+  const maxPages=parseInt(g('apMaxPages')||'20',10); if(maxPages>0) cfg.max_pages=maxPages;
+  const extraRaw=g('apExtraParams');
+  if(extraRaw){
+    const extra={};
+    extraRaw.replace(/^\?/,'').split('&').forEach(pair=>{
+      if(!pair) return;
+      const eq=pair.indexOf('='); if(eq<1) return;
+      const key=decodeURIComponent(pair.slice(0,eq).trim());
+      const val=decodeURIComponent(pair.slice(eq+1).trim().replace(/\+/g,' '));
+      if(key) extra[key]=val;
+    });
+    if(Object.keys(extra).length) cfg.extra_params=extra;
+  }
   if(g('apMapPayout')) cfg.map.payout=g('apMapPayout');
   if(g('apMapRef')) cfg.map.ref=g('apMapRef');
   return {

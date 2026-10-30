@@ -163,12 +163,17 @@ const CONNECTORS = {
    * {
    *   "url":            "https://provider.tld/api/messages",   // required
    *   "method":         "GET",                                  // GET | POST
-   *   "auth":           "bearer" | "header" | "query" | "none",
+   *   "auth":           "bearer" | "header" | "query" | "basic" | "none",
    *   "token":          "<api key / token>",
    *   "auth_header":    "X-API-Key",        // when auth = header
    *   "auth_query":     "api_key",          // when auth = query
+   *   "auth_username":  "<username>",       // when auth = basic
+   *   "auth_password":  "<password>",       // when auth = basic
    *   "since_param":    "start_date",       // query param carrying the cursor
    *   "since_format":   "sql" | "iso" | "epoch" | "epoch_ms",
+   *   "window_param":   "seconds",          // relative-window providers (ZY SMS)
+   *   "window_max_seconds": 3600,
+   *   "page_param":     "page",             // header-paginated providers
    *   "limit_param":    "limit",
    *   "limit":          500,
    *   "extra_params":   { "status": "delivered" },
@@ -216,7 +221,18 @@ const CONNECTORS = {
     if (!token && pastedParams.has(authQueryName)) token = cleanToken(pastedParams.get(authQueryName), authQueryName);
 
     const auth = String(cfg.auth || (token ? 'bearer' : 'none')).toLowerCase();
-    if (auth === 'bearer' && token) headers['Authorization'] = 'Bearer ' + token;
+    if (auth === 'basic') {
+      // ZY SMS/Zivastats uses HTTP Basic authentication. Do not run the
+      // password through cleanToken(): passwords are not API tokens and may
+      // legitimately contain characters that token cleanup would remove.
+      const basicUser = String(cfg.auth_username || cfg.username || '');
+      const basicPass = String(cfg.auth_password || cfg.password || '');
+      let basicToken = '';
+      if (basicUser || basicPass) basicToken = Buffer.from(`${basicUser}:${basicPass}`).toString('base64');
+      else if (token) basicToken = token.replace(/^Basic/i, '');
+      if (basicToken) headers['Authorization'] = 'Basic ' + basicToken;
+    }
+    else if (auth === 'bearer' && token) headers['Authorization'] = 'Bearer ' + token;
     else if (auth === 'header' && token) headers[cfg.auth_header || 'X-API-Key'] = token;
     else if (auth === 'query' && token) params.set(authQueryName, token);
 
@@ -245,6 +261,21 @@ const CONNECTORS = {
         || new Date(Date.now() + 60000).toISOString().slice(0, 19).replace('T', ' ');
       params.set(cfg.to_param, String(fmtVal(upper, fmt)));
     }
+    // Relative-window style (ZY SMS): the provider does not accept a cursor
+    // timestamp; it accepts "records from the last N seconds". Convert the
+    // normal AMS cursor (already rewound by overlap) to that N, capped by the
+    // provider maximum. A new/full sync therefore asks for the maximum window.
+    if (cfg.window_param) {
+      const sinceMs = new Date(String(sinceSql).replace(' ', 'T') + 'Z').getTime();
+      const maxWindow = parseInt(cfg.window_max_seconds || cfg.max_window_seconds || 0, 10);
+      const minWindow = Math.max(1, parseInt(cfg.window_min_seconds || 60, 10) || 60);
+      let windowSeconds = Number.isFinite(sinceMs)
+        ? Math.ceil((Date.now() - sinceMs) / 1000)
+        : (maxWindow > 0 ? maxWindow : 3600);
+      if (!Number.isFinite(windowSeconds) || windowSeconds < minWindow) windowSeconds = minWindow;
+      if (maxWindow > 0) windowSeconds = Math.min(windowSeconds, maxWindow);
+      params.set(cfg.window_param, String(Math.max(1, windowSeconds)));
+    }
     // record count: default 50 as required
     const recParam = cfg.records_param || cfg.limit_param;
     if (recParam) params.set(recParam, String(cfg.records || cfg.limit || 50));
@@ -259,84 +290,65 @@ const CONNECTORS = {
     // and "+" to "%2B" inside values; several providers (lamix included) reject
     // an encoded token even though it is technically correct. Token characters
     // that are safe unencoded in a query string are therefore left as-is.
-    const qs = buildQuery(params);
-    const full = method === 'GET' && qs ? url + '?' + qs : url;
-    const init = { method, headers, signal: AbortSignal.timeout(Number(cfg.timeout_ms || 20000)) };
-    if (method !== 'GET') {
-      headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(Object.fromEntries(params));
-    }
+    const pageParam = cfg.page_param || cfg.page_query || '';
+    const pageSize = Math.max(0, parseInt(cfg.records || cfg.limit || 0, 10) || 0);
+    const maxPages = Math.max(1, parseInt(cfg.max_pages || 20, 10) || 20);
+    const pageDelayMs = Math.max(0, parseInt(cfg.page_delay_ms || 0, 10) || 0);
 
-    const res = await fetch(full, init);
-    if (!res.ok) {
-      let bodySnippet = '';
-      try {
-        const rawText = await res.text();
-        bodySnippet = rawText
-          .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer ***')
-          .replace(/(token|key|api_key|password|secret|auth|access_token)[=:"']\s*([A-Za-z0-9._~+/-]{4,})/gi, '$1=***')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 200);
-      } catch (_) {}
-      const detail = bodySnippet ? `: ${bodySnippet}` : '';
-      throw new Error(`provider HTTP ${res.status}${detail}`);
-    }
-    const json = await res.json().catch(() => null);
-    if (json === null) throw new Error('provider returned non-JSON');
-
-    // Many providers (lamix/viewstats included) answer HTTP 200 with an error
-    // body when the API key is wrong: {"status":"error","msg":"Not Authorized"}.
-    // Without this check a bad key looks like "0 new messages" forever, which
-    // is the worst possible failure mode - silent. Surface it as a real error
-    // so it lands in sync_logs / last_error and stops the cursor advancing.
-    if (json && !Array.isArray(json)) {
-      const st = String(json.status ?? json.result ?? '').toLowerCase();
-      if (st === 'error' || st === 'fail' || st === 'failed' || json.error) {
-        const msg = String(json.msg || json.message || json.error || json.error_message
-                           || 'provider returned an error');
-        // "No Records Found" is NOT a failure. Both lamix and astrasms return
-        // status=error with this message whenever the requested window simply
-        // contains no SMS. Treating it as an error made every quiet poll fail,
-        // triggering exponential backoff and freezing the cursor - which is
-        // why a low-traffic provider appeared to "not work" while a busy one
-        // seemed fine. An empty window must be a normal, successful, empty run.
-        if (/no\s*record|no\s*data|not\s*found\s*record|empty/i.test(msg)) {
-          return [];
+    const extractRows = (json) => {
+      // Many providers (lamix/viewstats included) answer HTTP 200 with an error
+      // body when the API key is wrong: {"status":"error","msg":"Not Authorized"}.
+      // Without this check a bad key looks like "0 new messages" forever, which
+      // is the worst possible failure mode - silent. Surface it as a real error
+      // so it lands in sync_logs / last_error and stops the cursor advancing.
+      if (json && !Array.isArray(json)) {
+        const st = String(json.status ?? json.result ?? '').toLowerCase();
+        if (st === 'error' || st === 'fail' || st === 'failed' || json.error) {
+          const msg = String(json.msg || json.message || json.error || json.error_message
+                             || 'provider returned an error');
+          // "No Records Found" is NOT a failure. Both lamix and astrasms return
+          // status=error with this message whenever the requested window simply
+          // contains no SMS. Treating it as an error made every quiet poll fail,
+          // triggering exponential backoff and freezing the cursor - which is
+          // why a low-traffic provider appeared to "not work" while a busy one
+          // seemed fine. An empty window must be a normal, successful, empty run.
+          if (/no\s*record|no\s*data|not\s*found\s*record|empty/i.test(msg)) {
+            return [];
+          }
+          throw new Error(`provider error: ${msg.slice(0, 200)}`);
         }
-        throw new Error(`provider error: ${msg.slice(0, 200)}`);
       }
-    }
 
-    let rows = dig(json, cfg.records_path || '');
-    if (!Array.isArray(rows)) {
-      // tolerate common shapes without explicit records_path
-      rows = Array.isArray(json) ? json
-           : Array.isArray(json.data) ? json.data
-           : Array.isArray(json.results) ? json.results
-           : Array.isArray(json.messages) ? json.messages
-           : [];
-    }
+      let rows = dig(json, cfg.records_path || '');
+      if (!Array.isArray(rows)) {
+        // tolerate common shapes without explicit records_path
+        rows = Array.isArray(json) ? json
+             : Array.isArray(json.data) ? json.data
+             : Array.isArray(json.results) ? json.results
+             : Array.isArray(json.messages) ? json.messages
+             : [];
+      }
+      return rows;
+    };
 
     const m = cfg.map || {};
-    return rows.map(r => {
+    const mapRows = (rows) => rows.map(r => {
       // Payout is OPTIONAL and is only used as an indicator (see below).
       const payoutKeys = [m.payout || 'payout', 'payout', 'price', 'rate', 'amount', 'revenue'];
       let payoutRaw = null;
       for (const k of payoutKeys) {
         if (r && r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== '') { payoutRaw = r[k]; break; }
       }
-      const number  = String(pick(r, [m.number  || 'to', 'to', 'number', 'msisdn', 'recipient', 'destination', 'did', 'num']));
-      const cli     = String(pick(r, [m.cli     || 'from', 'from', 'cli', 'sender', 'originator', 'service']));
-      const message = String(pick(r, [m.message || 'text', 'text', 'message', 'body', 'content', 'sms']));
-      const date    = pick(r, [m.date || 'created_at', 'created_at', 'date', 'timestamp', 'received_at', 'time', 'datetime', 'dt']);
+      const number  = String(pick(r, [m.number  || 'to', 'to', 'number', 'msisdn', 'recipient', 'destination', 'destination_addr', 'destination_address', 'dest_addr', 'destination_number', 'called_number', 'dialed_number', 'did', 'num', 'ddi']));
+      const cli     = String(pick(r, [m.cli     || 'from', 'from', 'cli', 'sender', 'originator', 'source', 'source_addr', 'source_address', 'src_addr', 'source_number', 'caller', 'caller_id', 'service']));
+      const message = String(pick(r, [m.message || 'text', 'text', 'message', 'body', 'content', 'sms', 'short_message', 'message_content', 'msg_text', 'sms_text']));
+      const date    = pick(r, [m.date || 'created_at', 'created_at', 'date', 'timestamp', 'received_at', 'time', 'datetime', 'dt', 'start_stamp', 'start_time', 'date_time', 'inserted_at', 'created', 'sms_date']);
 
       // Unique reference. Many providers (including lamix/viewstats) return NO
       // id field at all, so fall back to a deterministic fingerprint of the
       // fields that identify a message. Same SMS -> same hash on every poll,
       // which is what makes the overlap window safe without a provider id.
-      let ref = String(pick(r, [m.ref || 'id', 'id', 'message_id', 'sms_id', 'uuid', 'reference', 'msgid']));
+      let ref = String(pick(r, [m.ref || 'id', 'id', 'message_id', 'sms_id', 'uuid', 'reference', 'msgid', 'inbound_id', 'allocation_id', 'record_id', 'cdr_id', 'sms_record_id']));
       if (!ref) {
         ref = 'fp:' + crypto.createHash('sha1')
           .update([toUtcSql(date), number, cli, message].join('|'))
@@ -345,6 +357,85 @@ const CONNECTORS = {
 
       return { ref, number, cli, message, date, payoutRaw, raw: r };
     });
+
+    const fetchPage = async (pageNo) => {
+      const pageParams = new URLSearchParams(params);
+      if (pageParam) pageParams.set(pageParam, String(pageNo));
+      const qs = buildQuery(pageParams);
+      const full = method === 'GET' && qs ? url + '?' + qs : url;
+      const pageHeaders = { ...headers };
+      const init = { method, headers: pageHeaders, signal: AbortSignal.timeout(Number(cfg.timeout_ms || 20000)) };
+      if (method !== 'GET') {
+        pageHeaders['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(Object.fromEntries(pageParams));
+      }
+
+      const res = await fetch(full, init);
+      if (!res.ok) {
+        let bodySnippet = '';
+        try {
+          const rawText = await res.text();
+          bodySnippet = rawText
+            .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer ***')
+            .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, 'Basic ***')
+            .replace(/(token|key|api_key|password|secret|auth|access_token)[=:"']\s*([A-Za-z0-9._~+/-]{4,})/gi, '$1=***')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 200);
+        } catch (_) {}
+        const detail = bodySnippet ? `: ${bodySnippet}` : '';
+        throw new Error(`provider HTTP ${res.status}${detail}`);
+      }
+      const json = await res.json().catch(() => null);
+      if (json === null) throw new Error('provider returned non-JSON');
+      return { json, headers: res.headers };
+    };
+
+    const first = await fetchPage(1);
+    let mapped = mapRows(extractRows(first.json));
+
+    // Page-number pagination (ZY SMS sends X-Page-Count / X-Total-Count).
+    // Providers without page_param keep the exact single-request behaviour;
+    // dt1/dt2 backlog walking remains in fetchAllPages() below.
+    if (pageParam) {
+      const headerInt = (name) => {
+        try { return parseInt(first.headers.get(name) || '', 10); } catch (_) { return NaN; }
+      };
+      let totalPages = headerInt('x-page-count');
+      if (!Number.isFinite(totalPages) || totalPages < 1) totalPages = headerInt('x-pagination-page-count');
+      if (!Number.isFinite(totalPages) || totalPages < 1) {
+        let totalCount = headerInt('x-total-count');
+        if (!Number.isFinite(totalCount)) totalCount = headerInt('x-pagination-total-count');
+        const perPage = headerInt('x-per-page') || headerInt('x-pagination-per-page') || pageSize || mapped.length;
+        if (Number.isFinite(totalCount) && perPage > 0) totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+      }
+
+      const seenRefs = new Set(mapped.map(r => r.ref).filter(Boolean));
+      let lastPageCount = mapped.length;
+      const lastPage = (Number.isFinite(totalPages) && totalPages > 1) ? Math.min(totalPages, maxPages) : maxPages;
+      for (let pageNo = 2; pageNo <= lastPage; pageNo++) {
+        // Without a trustworthy page-count header, only continue while the
+        // previous page was exactly full. This prevents an endless duplicate
+        // loop against a provider that ignores the page parameter.
+        if ((!Number.isFinite(totalPages) || totalPages <= 1) && (!pageSize || lastPageCount < pageSize)) break;
+        if (pageDelayMs) await new Promise(resolve => setTimeout(resolve, pageDelayMs));
+        const next = await fetchPage(pageNo);
+        const nextMapped = mapRows(extractRows(next.json));
+        lastPageCount = nextMapped.length;
+        if (!nextMapped.length) break;
+        let added = 0;
+        for (const rec of nextMapped) {
+          if (rec.ref && seenRefs.has(rec.ref)) continue;
+          if (rec.ref) seenRefs.add(rec.ref);
+          mapped.push(rec);
+          added++;
+        }
+        if (!added) break;
+      }
+    }
+
+    return mapped;
   },
 };
 

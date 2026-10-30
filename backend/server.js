@@ -534,8 +534,9 @@ const brandSlug = () => { try { return brandingPanel.brandSlug(); } catch (e) { 
 app.get('/api/sync/providers', authRequired, requireRole('admin'), (req, res) => {
   const rows = providerSync.listProviders().map(p => {
     const cfg = providerSync.parseConfig(p);
-    // never leak the token back to the browser
+    // never leak the token / Basic password back to the browser
     if (cfg.token) cfg.token = '********';
+    if (cfg.auth_password) cfg.auth_password = '********';
     return { ...p, config_json: JSON.stringify(cfg) };
   });
   res.json(rows);
@@ -570,8 +571,10 @@ app.put('/api/sync/providers/:id', authRequired, requireRole('admin'), (req, res
   let cfgJson = b.config_json !== undefined ? String(b.config_json) : p.config_json;
   try {
     const incoming = JSON.parse(cfgJson || '{}');
-    if (incoming.token === '********') {
-      incoming.token = providerSync.parseConfig(p).token || '';
+    if (incoming.token === '********' || incoming.auth_password === '********') {
+      const stored = providerSync.parseConfig(p);
+      if (incoming.token === '********') incoming.token = stored.token || '';
+      if (incoming.auth_password === '********') incoming.auth_password = stored.auth_password || '';
       cfgJson = JSON.stringify(incoming);
     }
   } catch (e) { return res.status(400).json({ error: 'config_json must be valid JSON' }); }
@@ -628,9 +631,11 @@ app.post('/api/sync/test', authRequired, requireRole('admin'), async (req, res) 
 
   // If the browser sent the masked placeholder, use the stored key instead so
   // the user can test an existing provider without re-typing its token.
-  if (cfg.token === '********') {
+  if (cfg.token === '********' || cfg.auth_password === '********') {
     const existing = b.name ? db.get('SELECT * FROM sync_providers WHERE name=?', [String(b.name)]) : null;
-    cfg.token = existing ? (providerSync.parseConfig(existing).token || '') : '';
+    const stored = existing ? providerSync.parseConfig(existing) : {};
+    if (cfg.token === '********') cfg.token = stored.token || '';
+    if (cfg.auth_password === '********') cfg.auth_password = stored.auth_password || '';
   }
 
   const connector = providerSync.CONNECTORS[b.connector || 'generic_json'] || providerSync.CONNECTORS.generic_json;
