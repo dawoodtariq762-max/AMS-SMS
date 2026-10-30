@@ -1108,11 +1108,14 @@ Nigeria"></textarea><div class="hint">Default rates will be NA. You can edit pay
       <div class="form-group"><label>Response Array Path</label><input type="text" id="apRecPath" placeholder="data" /><div class="hint">Where the records array is, e.g. <b>data</b>. Leave blank when the API returns a root JSON array, as ZY SMS does.</div></div>
     </div>
     <div class="form-grid">
+      <div class="form-group"><label>Response Date Timezone</label><select id="apDateTz"><option value="server">Server timezone (existing behaviour)</option><option value="UTC">UTC (Zivastats)</option></select><div class="hint">Use UTC when the provider returns timestamps without a timezone but they are already UTC.</div></div>
       <div class="form-group"><label>Relative Window Parameter (optional)</label><input type="text" id="apWindowParam" placeholder="seconds — ZY SMS only" /><div class="hint">For APIs that accept “last N seconds” instead of date parameters.</div></div>
-      <div class="form-group"><label>Max Window (seconds)</label><input type="number" id="apWindowMax" placeholder="3600" min="1" max="86400" /><div class="hint">ZY SMS maximum is 3600 seconds.</div></div>
     </div>
     <div class="form-grid">
+      <div class="form-group"><label>Max Window (seconds)</label><input type="number" id="apWindowMax" placeholder="3600" min="1" max="86400" /><div class="hint">ZY SMS maximum is 3600 seconds.</div></div>
       <div class="form-group"><label>Page Parameter (optional)</label><input type="text" id="apPageParam" placeholder="page — ZY SMS only" /><div class="hint">When set, all response pages are fetched automatically.</div></div>
+    </div>
+    <div class="form-grid">
       <div class="form-group"><label>Max Pages</label><input type="number" id="apMaxPages" value="20" min="1" max="100" /></div>
     </div>
     <div class="form-group"><label>Extra Query Parameters (optional)</label><input type="text" id="apExtraParams" placeholder="partition_crm_id_client=...&group=..." /><div class="hint">Fixed provider filters in <b>name=value&amp;name=value</b> format. Leave blank if the API user already returns only the required records.</div></div>
@@ -3412,6 +3415,7 @@ function apApplyZyPreset(){
   set('apRecParam','per-page');
   set('apRecords','500');
   set('apRecPath','');
+  set('apDateTz','UTC');
   set('apWindowParam','seconds');
   set('apWindowMax','3600');
   set('apPageParam','page');
@@ -3522,6 +3526,7 @@ function openApiProviderModal(i){
   g('apRecParam').value=cfg.records_param||cfg.limit_param||'records';
   g('apRecords').value=cfg.records||cfg.limit||50;
   g('apRecPath').value=(cfg.records_path!==undefined?cfg.records_path:'data');
+  const tzEl=g('apDateTz'); if(tzEl) tzEl.value=(String(cfg.date_timezone||cfg.response_timezone||'').toUpperCase()==='UTC'?'UTC':'server');
   const wpEl=g('apWindowParam'); if(wpEl) wpEl.value=cfg.window_param||'';
   const wmEl=g('apWindowMax'); if(wmEl) wmEl.value=cfg.window_max_seconds||cfg.max_window_seconds||'';
   const ppEl=g('apPageParam'); if(ppEl) ppEl.value=cfg.page_param||'';
@@ -3567,6 +3572,7 @@ function apBuildPayload(){
   if(g('apFromParam')) cfg.from_param=g('apFromParam');
   if(g('apToParam')) cfg.to_param=g('apToParam');
   if(g('apRecParam')) cfg.records_param=g('apRecParam');
+  if(g('apDateTz')==='UTC') cfg.date_timezone='UTC';
   if(g('apWindowParam')) cfg.window_param=g('apWindowParam');
   const windowMax=parseInt(g('apWindowMax')||'',10); if(windowMax>0) cfg.window_max_seconds=windowMax;
   if(g('apPageParam')) cfg.page_param=g('apPageParam');

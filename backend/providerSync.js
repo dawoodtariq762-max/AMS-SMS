@@ -36,7 +36,7 @@ function nowUtcSql() {
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
 
-function toUtcSql(value) {
+function toUtcSql(value, opts = {}) {
   if (!value && value !== 0) return nowUtcSql();
   // epoch seconds / milliseconds
   if (typeof value === 'number' || /^\d{10,13}$/.test(String(value))) {
@@ -44,9 +44,26 @@ function toUtcSql(value) {
     const ms = String(value).length <= 10 ? n * 1000 : n;
     return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
   }
-  const d = new Date(value);
+
+  let raw = String(value).trim();
+  // Zivastats returns a naive SQL timestamp such as "2026-10-30 07:23:37"
+  // in UTC. JavaScript otherwise parses that shape in the server's local
+  // timezone, which can move the sync cursor hours into the past and make a
+  // relative-window provider request the maximum window on every poll.
+  // This is opt-in per provider so existing providers keep their behaviour.
+  if (opts && opts.assumeUtc) {
+    const naive = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)$/);
+    if (naive) raw = `${naive[1]}T${naive[2]}Z`;
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) raw = `${raw}T00:00:00Z`;
+  }
+
+  const d = new Date(raw);
   if (!isNaN(d.getTime())) return d.toISOString().slice(0, 19).replace('T', ' ');
   return nowUtcSql();
+}
+
+function isUtcDateConfig(cfg) {
+  return ['utc', 'z', 'gmt'].includes(String((cfg && (cfg.date_timezone || cfg.response_timezone)) || '').trim().toLowerCase());
 }
 
 function shiftSql(sqlTs, seconds) {
@@ -173,6 +190,7 @@ const CONNECTORS = {
    *   "since_format":   "sql" | "iso" | "epoch" | "epoch_ms",
    *   "window_param":   "seconds",          // relative-window providers (ZY SMS)
    *   "window_max_seconds": 3600,
+   *   "date_timezone":  "UTC",              // only when response dates are naive UTC
    *   "page_param":     "page",             // header-paginated providers
    *   "limit_param":    "limit",
    *   "limit":          500,
@@ -332,6 +350,7 @@ const CONNECTORS = {
     };
 
     const m = cfg.map || {};
+    const assumeUtcDate = isUtcDateConfig(cfg);
     const mapRows = (rows) => rows.map(r => {
       // Payout is OPTIONAL and is only used as an indicator (see below).
       const payoutKeys = [m.payout || 'payout', 'payout', 'price', 'rate', 'amount', 'revenue'];
@@ -342,20 +361,32 @@ const CONNECTORS = {
       const number  = String(pick(r, [m.number  || 'to', 'to', 'number', 'msisdn', 'recipient', 'destination', 'destination_addr', 'destination_address', 'dest_addr', 'destination_number', 'called_number', 'dialed_number', 'did', 'num', 'ddi']));
       const cli     = String(pick(r, [m.cli     || 'from', 'from', 'cli', 'sender', 'originator', 'source', 'source_addr', 'source_address', 'src_addr', 'source_number', 'caller', 'caller_id', 'service']));
       const message = String(pick(r, [m.message || 'text', 'text', 'message', 'body', 'content', 'sms', 'short_message', 'message_content', 'msg_text', 'sms_text']));
-      const date    = pick(r, [m.date || 'created_at', 'created_at', 'date', 'timestamp', 'received_at', 'time', 'datetime', 'dt', 'start_stamp', 'start_time', 'date_time', 'inserted_at', 'created', 'sms_date']);
+      const rawDate = pick(r, [m.date || 'created_at', 'created_at', 'date', 'timestamp', 'received_at', 'time', 'datetime', 'dt', 'start_stamp', 'start_time', 'date_time', 'inserted_at', 'created', 'sms_date']);
+      const date    = assumeUtcDate ? toUtcSql(rawDate, { assumeUtc: true }) : rawDate;
 
       // Unique reference. Many providers (including lamix/viewstats) return NO
       // id field at all, so fall back to a deterministic fingerprint of the
       // fields that identify a message. Same SMS -> same hash on every poll,
       // which is what makes the overlap window safe without a provider id.
       let ref = String(pick(r, [m.ref || 'id', 'id', 'message_id', 'sms_id', 'uuid', 'reference', 'msgid', 'inbound_id', 'allocation_id', 'record_id', 'cdr_id', 'sms_record_id']));
+      let legacyRefs = [];
       if (!ref) {
-        ref = 'fp:' + crypto.createHash('sha1')
-          .update([toUtcSql(date), number, cli, message].join('|'))
+        const fingerprintFor = (value) => 'fp:' + crypto.createHash('sha1')
+          .update([value, number, cli, message].join('|'))
           .digest('hex').slice(0, 24);
+        ref = fingerprintFor(toUtcSql(date, { assumeUtc: assumeUtcDate }));
+
+        // Upgrade safety: before date_timezone=UTC existed, a non-UTC server
+        // hashed Zivastats' naive UTC timestamp after a local-time parse.
+        // Keep that old fingerprint as an alias for sync_seen lookups so
+        // turning UTC parsing on cannot re-insert SMS from the last hour.
+        if (assumeUtcDate) {
+          const legacyRef = fingerprintFor(toUtcSql(rawDate));
+          if (legacyRef && legacyRef !== ref) legacyRefs.push(legacyRef);
+        }
       }
 
-      return { ref, number, cli, message, date, payoutRaw, raw: r };
+      return { ref, legacyRefs, number, cli, message, date, payoutRaw, raw: r };
     });
 
     const fetchPage = async (pageNo) => {
@@ -550,7 +581,7 @@ async function fetchAllPages(connector, cfg, sinceSql, log) {
   const oldestOf = (rows) => {
     let min = null;
     for (const r of rows) {
-      const t = toUtcSql(r.date);
+      const t = toUtcSql(r.date, { assumeUtc: isUtcDateConfig(cfg) });
       if (min === null || t < min) min = t;
     }
     return min;
@@ -600,8 +631,11 @@ async function fetchAllPages(connector, cfg, sinceSql, log) {
 
 async function syncProvider(provider, deps, opts = {}) {
   const started = Date.now();
+  const startedSql = new Date(started).toISOString().slice(0, 19).replace('T', ' ');
   const cfg = parseConfig(provider);
   const connector = CONNECTORS[provider.connector] || CONNECTORS.generic_json;
+  const relativeWindow = !!cfg.window_param;
+  const assumeUtcDate = isUtcDateConfig(cfg);
 
   // Cursor with safety overlap. A manual resync ignores the cursor entirely.
   const overlap = Math.max(0, parseInt(provider.overlap_seconds || 30, 10));
@@ -628,14 +662,37 @@ async function syncProvider(provider, deps, opts = {}) {
         for (const rec of records) {
           if (!rec.ref) { failed++; continue; }
 
-          // Deduplicate on (provider_id, provider_ref).
-          const seen = db.get(
+          const receivedAt = toUtcSql(rec.date, { assumeUtc: assumeUtcDate });
+
+          // Deduplicate on (provider_id, provider_ref). `legacyRefs` is only
+          // present for the UTC-date upgrade described in the connector; all
+          // existing connectors/providers continue with their single ref.
+          let seen = db.get(
             'SELECT id FROM sync_seen WHERE provider_id=? AND provider_ref=?',
             [provider.id, rec.ref]
           );
-          if (seen) { duplicates++; continue; }
-
-          const receivedAt = toUtcSql(rec.date);
+          let seenByLegacy = false;
+          if (!seen && Array.isArray(rec.legacyRefs)) {
+            for (const legacyRef of rec.legacyRefs) {
+              if (!legacyRef || legacyRef === rec.ref) continue;
+              seen = db.get(
+                'SELECT id FROM sync_seen WHERE provider_id=? AND provider_ref=?',
+                [provider.id, legacyRef]
+              );
+              if (seen) { seenByLegacy = true; break; }
+            }
+          }
+          if (seen) {
+            duplicates++;
+            if (seenByLegacy) {
+              const alias = db.run(
+                'INSERT OR IGNORE INTO sync_seen (provider_id,provider_ref,received_at) VALUES (?,?,?)',
+                [provider.id, rec.ref, receivedAt]
+              );
+              if (alias && alias.changes) dirty = true;
+            }
+            continue;
+          }
 
           // Reuse the exact ingestion path used by the live carrier webhook,
           // so allocation, payout, OTP extraction and limits behave identically.
@@ -679,8 +736,17 @@ async function syncProvider(provider, deps, opts = {}) {
         // Advance the cursor and write the log row INSIDE the batch so they
         // ride along with the single save below instead of forcing two more
         // full-database exports.
+        //
+        // Relative-window APIs (Zivastats `seconds=N`) need a different cursor
+        // from dt1/dt2 APIs. Their window is calculated from the previous
+        // successful poll, so store this poll's start time rather than the
+        // newest SMS timestamp. If the first full-hour poll finds only a
+        // 20-minute-old SMS, using that SMS time would keep asking for an
+        // ever-growing/maximum window and re-fetch the same rows for an hour.
+        // The configured overlap is still subtracted on the next poll, and
+        // sync_seen still prevents an overlap row from being inserted twice.
         markProvider(provider.id, {
-          last_sync_at: newest || nowUtcSql(),
+          last_sync_at: relativeWindow ? startedSql : (newest || nowUtcSql()),
           last_status: 'ok',
           last_error: '',
           consecutive_failures: 0,
@@ -828,5 +894,5 @@ module.exports = {
   getProvider,
   parseConfig,
   CONNECTORS,
-  _internal: { toUtcSql, shiftSql, dig, pick, cleanUrl, cleanToken, buildQuery },
+  _internal: { toUtcSql, isUtcDateConfig, shiftSql, dig, pick, cleanUrl, cleanToken, buildQuery },
 };
