@@ -1133,12 +1133,12 @@ function providerRateSelectSql(role){
 }
 function providerRateFromRow(r){
   if (!r) return '';
-  const cycle = normalizePaymentCycle(r.payterm || r.payment_type || 'weekly_7_1');
-  const raw = cycle === 'daily' ? r.provider_rate_1_1
-            : cycle === 'weekly_7_7' ? r.provider_rate_7_7
-            : cycle === 'monthly_30x45' ? r.provider_rate_30_45
-            : r.provider_rate_7_1;
-  const v = normalizeDecimalString(raw);
+  /* Use the same provider-rate cycle fallback as Real Provider Cost
+     (providerRateForPaymentCycle). The report previously looked only at the
+     exact cycle column, so a range whose stored provider rate lives in a
+     fallback cycle column (e.g. weekly cycle with only 30/45 populated)
+     rendered blank even though Provider Cost could price the same SMS. */
+  const v = providerRateForPaymentCycle(r, r.payterm || r.payment_type || 'weekly_7_1');
   return isPositiveDecimal(v) ? v : '';
 }
 /* admin keeps the stored provider rate columns (UI shows the cycle value);
@@ -1536,7 +1536,10 @@ function recordPaymentLedgerForSms(smsId, persist=true){
   /* P16: priority 1) sms.payment_type (ingestion snapshot) 2) numbers.payterm (allocation)
      3) users.payment_type (agent default) 4) ranges.payment_type 5) weekly — backfill rows ke liye bhi sahi cycle */
   const srow=db.get(`SELECT s.id,s.agent_id,s.manager_id,s.range_id,s.payout_amount,s.received_at,COALESCE(NULLIF(s.payment_type,''), NULLIF(n.payterm,''), u.payment_type, r.payment_type, 'weekly') AS payment_type FROM sms_records s LEFT JOIN numbers n ON n.id=s.number_id LEFT JOIN users u ON u.id=s.agent_id LEFT JOIN ranges r ON r.id=s.range_id WHERE s.id=?`,[smsId]);
-  if(!srow || !srow.agent_id || cents(srow.payout_amount)<=0) return;
+  /* Ledger eligibility is the existing payout>0 contract. Do not gate it with
+     cents(): valid sub-cent rates (e.g. 0.001–0.004) round to 0 cents and were
+     silently omitted from payment_ledger, making ledger earnings too low. */
+  if(!srow || !srow.agent_id || !isPositiveDecimal(srow.payout_amount)) return;
   if(db.get('SELECT id FROM payment_ledger WHERE sms_record_id=?',[smsId])) return;
   const type=normalizePaymentType(srow.payment_type||'weekly'); const cyc=paymentCycleInfo(type,srow.received_at);
   db.runNoSave(`INSERT INTO payment_ledger (sms_record_id,agent_id,manager_id,range_id,payment_type,amount,earned_at,cycle_key,eligible_at,status)
@@ -4264,16 +4267,19 @@ app.get('/api/sms/paged', authRequired, (req, res) => cachedJson(req, res, 1200,
   return { rows: attachSmsPayoutFields(attachSmsProviderRate(rows, req.user.role)), total, page, limit, totalPages, totalPayment };
 }, 'numbers_ver')); /* P19: number-delete report cache turant invalidate */
 /* =========================================================================
- * REAL EARNING SUMMARY (existing payment_ledger only)
+ * REAL EARNING SUMMARY
  * -------------------------------------------------------------------------
- * Source: payment_ledger — the ledger row that already records, at ingest time,
- * the amount each SMS earns for its agent (amount = sms payout snapshot,
- * agent_id / manager_id / range_id / earned_at). No new formula, no repricing,
- * no currency inference: plain SUM(amount) over the existing rows.
+ * Admin is platform scope: its Earning cards/graph must include every
+ * non-test SMS payout snapshot (sms_records.payout_amount — the same amount
+ * Admin reports as Manager Payout), including direct manager/client traffic.
+ * payment_ledger is narrower: it is the agent withdrawal ledger and only
+ * exists when an agent is involved, so using it for Admin understated total
+ * SMS earnings (often $0 on days with only direct allocations).
+ * Manager/Agent keep the existing payment_ledger semantics:
  *   agent   -> ledger rows where agent_id = caller
  *   manager -> ledger rows where manager_id = caller (their hierarchy's ledger)
- *   admin   -> every ledger row
  *   client  -> not applicable (client has no ledger rows) -> zeros
+ * No new formula or repricing: plain SUM over the existing stored snapshot.
  * Windows reuse the same UK reporting-day helpers as /api/dashboard.
  * ========================================================================= */
 app.get('/api/earnings-summary', authRequired, (req, res) => cachedJson(req, res, 10000, () => {
@@ -4286,10 +4292,15 @@ app.get('/api/earnings-summary', authRequired, (req, res) => cachedJson(req, res
   const dToday = ukTodayDateStr(0);
   const dowMon = (new Date(dToday + 'T00:00:00Z').getUTCDay() + 6) % 7;   // 0 = Monday, same as dashboard week
   const monthStart = dToday.slice(0, 7) + '-01';
+  const isAdmin = u.role === 'admin';
   const sumFor = (from, to) => {
     const fromSql = ukLocalDateToUtcSql(from, 0), toSql = ukLocalDateToUtcSql(to, 1);
-    const v = db.get(`SELECT COALESCE(SUM(CAST(COALESCE(NULLIF(l.amount,''),'0') AS REAL)),0) AS s
-      FROM payment_ledger l WHERE l.earned_at >= ? AND l.earned_at < ?${scopeWhere}`, [fromSql, toSql, ...params])?.s || 0;
+    const v = isAdmin
+      ? db.get(`SELECT COALESCE(SUM(CAST(COALESCE(NULLIF(s.payout_amount,''),'0') AS REAL)),0) AS s
+          FROM sms_records s
+          WHERE COALESCE(s.is_test,0)=0 AND s.received_at >= ? AND s.received_at < ?`, [fromSql, toSql])?.s || 0
+      : db.get(`SELECT COALESCE(SUM(CAST(COALESCE(NULLIF(l.amount,''),'0') AS REAL)),0) AS s
+          FROM payment_ledger l WHERE l.earned_at >= ? AND l.earned_at < ?${scopeWhere}`, [fromSql, toSql, ...params])?.s || 0;
     /* SUM() over REAL carries binary float noise (0.036000000000000004); normalise it the
        same way the dashboard payout sums are normalised. No value change, formatting only. */
     return normalizeDecimalString(Number(v).toFixed(6)) || '0';
@@ -4305,28 +4316,36 @@ app.get('/api/earnings-summary', authRequired, (req, res) => cachedJson(req, res
     earning_month: sumFor(monthStart, dToday),
     earning_7d: sumFor(d7Start, dToday),
     earning_all: (() => {
-      const v = db.get(`SELECT COALESCE(SUM(CAST(COALESCE(NULLIF(l.amount,''),'0') AS REAL)),0) AS s FROM payment_ledger l WHERE 1=1${scopeWhere}`, params)?.s || 0;
+      const v = isAdmin
+        ? db.get(`SELECT COALESCE(SUM(CAST(COALESCE(NULLIF(s.payout_amount,''),'0') AS REAL)),0) AS s FROM sms_records s WHERE COALESCE(s.is_test,0)=0`)?.s || 0
+        : db.get(`SELECT COALESCE(SUM(CAST(COALESCE(NULLIF(l.amount,''),'0') AS REAL)),0) AS s FROM payment_ledger l WHERE 1=1${scopeWhere}`, params)?.s || 0;
       return normalizeDecimalString(Number(v).toFixed(6)) || '0';
     })(),
+    source: isAdmin ? 'sms_records.payout_amount' : 'payment_ledger',
+    sms_rows: isAdmin ? (db.get(`SELECT COUNT(*) c FROM sms_records s WHERE COALESCE(s.is_test,0)=0`)?.c || 0) : null,
     ledger_rows: db.get(`SELECT COUNT(*) c FROM payment_ledger l WHERE 1=1${scopeWhere}`, params)?.c || 0,
     daily7
   };
 }, 'numbers_ver'));
 /* AMS redesign (2026-10-24): additive read-only daily series for the AMS
-   "Volume · last 15 days" chart. Same sources, formulas, UK boundaries and
-   role scopes as /api/dashboard (sms_daily_stats) and /api/earnings-summary
-   (payment_ledger) — only the window is wider. Existing responses unchanged. */
+   "Volume · last 15 days" chart. Manager/Agent keep sms_daily_stats +
+   payment_ledger. Admin is platform scope, so its count/payout series is
+   aggregated directly from sms_records for the requested UK window; this
+   prevents pre-aggregate drift and includes direct manager/client SMS that
+   have no agent payment-ledger row. Existing response keys are unchanged. */
 app.get('/api/dashboard/daily', authRequired, (req, res) => cachedJson(req, res, 10000, () => {
   const u = req.user;
   const days = Math.min(31, Math.max(1, parseInt(req.query.days, 10) || 15));
   const st = statsScope(u);
   const stWhere = st.col ? ` AND ${st.col}=?` : '';
-  /* Ledger scope: identical to /api/earnings-summary (client has no ledger
-     earnings, so amount is null rather than a misleading 0). */
+  const isAdmin = u.role === 'admin';
+  /* Ledger scope for Manager/Agent only. Admin amount below is the platform
+     SMS payout snapshot (sms_records.payout_amount), matching the corrected
+     Admin earnings-summary source; Client amount stays null in this field
+     and the client UI maps its existing payout series explicitly. */
   let ledWhere = null, ledParams = [];
   if (u.role === 'agent') { ledWhere = ' AND l.agent_id=?'; ledParams = [u.id]; }
   else if (u.role === 'manager') { ledWhere = ' AND l.manager_id=?'; ledParams = [u.id]; }
-  else if (u.role === 'admin') { ledWhere = ''; ledParams = []; }
   const ledSum = (from, to) => {
     if (ledWhere === null) return null;
     const v = db.get(`SELECT COALESCE(SUM(CAST(COALESCE(NULLIF(l.amount,''),'0') AS REAL)),0) AS s
@@ -4335,19 +4354,42 @@ app.get('/api/dashboard/daily', authRequired, (req, res) => cachedJson(req, res,
     return normalizeDecimalString(Number(v).toFixed(6)) || '0';
   };
   const dToday = ukTodayDateStr(0), dStart = ukTodayDateStr(-(days - 1));
-  const smsRows = db.all(`SELECT stat_date, SUM(sms_count) c, SUM(payout_sum) p FROM sms_daily_stats WHERE 1=1${stWhere} AND stat_date BETWEEN ? AND ? GROUP BY stat_date`, [...st.params, dStart, dToday]);
-  const byDate = {}; smsRows.forEach(r => { byDate[r.stat_date] = { count: r.c || 0, payout: normalizeDecimalString(Number(r.p || 0).toFixed(6)) || '0' }; });
+  const byDate = {};
+  if (isAdmin) {
+    /* Direct authoritative Admin aggregation from sms_records, grouped by
+       Europe/London calendar date with DST offset segments (same technique
+       as /api/sms/report). No LIMIT and no sms_daily_stats dependency. */
+    const fromSql = ukLocalDateToUtcSql(dStart, 0), toSql = ukLocalDateToUtcSql(dToday, 1);
+    const spanA = Date.parse(fromSql.replace(' ', 'T') + 'Z');
+    const spanB = Date.parse(toSql.replace(' ', 'T') + 'Z');
+    const segs = ukOffsetSegments(spanA, spanB);
+    const dayExpr = segs.length === 1
+      ? `strftime('%Y-%m-%d', s.received_at, '${segs[0].off >= 0 ? '+' : ''}${segs[0].off} hours')`
+      : 'CASE ' + segs.map(sg => `WHEN s.received_at >= '${fmtUtcSql(sg.start)}' AND s.received_at < '${fmtUtcSql(sg.end)}' THEN strftime('%Y-%m-%d', s.received_at, '${sg.off >= 0 ? '+' : ''}${sg.off} hours')`).join(' ')
+        + ` ELSE strftime('%Y-%m-%d', s.received_at, '${segs[segs.length - 1].off >= 0 ? '+' : ''}${segs[segs.length - 1].off} hours') END`;
+    const directRows = db.all(`SELECT ${dayExpr} AS stat_date, COUNT(*) c,
+        COALESCE(SUM(CAST(COALESCE(NULLIF(s.payout_amount,''),'0') AS REAL)),0) p
+      FROM sms_records s
+      WHERE COALESCE(s.is_test,0)=0 AND s.received_at >= ? AND s.received_at < ?
+      GROUP BY stat_date`, [fromSql, toSql]);
+    directRows.forEach(r => { byDate[r.stat_date] = { count: r.c || 0, payout: normalizeDecimalString(Number(r.p || 0).toFixed(6)) || '0' }; });
+  } else {
+    const smsRows = db.all(`SELECT stat_date, SUM(sms_count) c, SUM(payout_sum) p FROM sms_daily_stats WHERE 1=1${stWhere} AND stat_date BETWEEN ? AND ? GROUP BY stat_date`, [...st.params, dStart, dToday]);
+    smsRows.forEach(r => { byDate[r.stat_date] = { count: r.c || 0, payout: normalizeDecimalString(Number(r.p || 0).toFixed(6)) || '0' }; });
+  }
   const rows = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = ukTodayDateStr(-i);
     const s = byDate[d] || { count: 0, payout: '0' };
-    rows.push({ date: d, count: s.count, payout: s.payout, amount: ledSum(d, d) });
+    rows.push({ date: d, count: s.count, payout: s.payout, amount: isAdmin ? s.payout : ledSum(d, d) });
   }
+  const payoutTotal = normalizeDecimalString(rows.reduce((a, r) => a + (parseFloat(r.payout) || 0), 0).toFixed(6)) || '0';
   return {
     days, date: dToday, rows,
     sms_total: rows.reduce((a, r) => a + (r.count || 0), 0),
-    earning_total: ledSum(dStart, dToday),
-    payout_total: normalizeDecimalString(rows.reduce((a, r) => a + (parseFloat(r.payout) || 0), 0).toFixed(6)) || '0'
+    earning_total: isAdmin ? payoutTotal : ledSum(dStart, dToday),
+    payout_total: payoutTotal,
+    earning_source: isAdmin ? 'sms_records.payout_amount' : (ledWhere === null ? 'sms_daily_stats.payout_sum' : 'payment_ledger')
   };
 }, 'numbers_ver'));
 

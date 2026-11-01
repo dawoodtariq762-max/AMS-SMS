@@ -344,8 +344,8 @@
    *   amsKpis()   -> the 4 gradient cards: SMS Today, SMS This Week,
    *                  Earnings Today (ledger), Earnings This Month (ledger)
    *   amsVolume() -> AMS "Volume · last N days" grouped-bar chart (blue SMS
-   *                  bars labelled x10 scale, pink earnings bars) built from
-   *                  the two existing daily7 series merged by date.
+   *                  bars on the actual left SMS axis, pink money bars on the
+   *                  right money axis) built from the daily series by date.
    *   amsRail()   -> right-hand icon stat list (SMS Yesterday etc.)
    * ============================================================================ */
   function amsMoney(v) { return v == null || v === '' ? '—' : '$' + pay3(v); }
@@ -386,39 +386,82 @@
     const title = 'Volume · last ' + (rows.length || 0) + ' days';
     const head = '<div class="ams-panel-chart-card"><div class="ams-panel-chart-head"><h3>' + esc(title) + '</h3><p>Daily volume and ' + esc(moneyName.toLowerCase()) + ' for the period.</p></div>';
     const totSms = smsTotal == null || smsTotal === '' ? rows.reduce(function (a, r) { return a + r.sms; }, 0) : smsTotal;
-    const totals = '<div class="ams-panel-chart-totals"><span><i class="ams-panel-swatch ams-panel-swatch-blue"></i><strong>' + esc(count(totSms)) + '</strong> <span class="ams-panel-muted">SMS received (bars x10)</span></span>' +
+    const totals = '<div class="ams-panel-chart-totals"><span><i class="ams-panel-swatch ams-panel-swatch-blue"></i><strong>' + esc(count(totSms)) + '</strong> <span class="ams-panel-muted">SMS received</span></span>' +
       '<span><i class="ams-panel-swatch ams-panel-swatch-pink"></i><strong>' + esc(amsMoney(earnTotal)) + '</strong> <span class="ams-panel-muted">' + esc(moneyName) + '</span></span></div>';
     if (!rows.length) { host.innerHTML = head + totals + '<p class="ams-panel-chart-empty">No volume data available.</p></div>'; return; }
-    const w = 720, h = 300, left = 52, right = 16, top = 14, bottom = 34;
+    const w = 720, h = 300, left = 56, right = 58, top = 28, bottom = 34;
     const plotW = w - left - right, plotH = h - top - bottom;
-    const maxSms = Math.max.apply(null, rows.map(function (r) { return r.sms / 10; }).concat([0]));
-    const step = Math.max(1, Math.ceil(maxSms / 4));
-    const axisMax = Math.max(step * 4, 1);
-    const maxEarn = Math.max.apply(null, rows.map(function (r) { return r.earn; }).concat([0])) || 1;
+    const niceAxis = function (max, minStep) {
+      if (!Number.isFinite(max) || max <= 0) return { step: minStep, max: minStep * 4 };
+      const raw = max / 4;
+      const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+      const n = raw / pow;
+      const step = Math.max((n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * pow, minStep);
+      return { step: step, max: step * 4 };
+    };
+    const smsAxis = niceAxis(Math.max.apply(null, rows.map(function (r) { return r.sms; }).concat([0])), 1);
+    const earnAxis = niceAxis(Math.max.apply(null, rows.map(function (r) { return r.earn; }).concat([0])), 0.25);
     const groupW = plotW / rows.length, barW = Math.min(18, groupW * 0.32);
     const Y = function (frac) { return top + plotH * (1 - frac); };
-    let grid = '<rect x="' + left + '" y="' + top + '" width="' + plotW + '" height="' + plotH + '" rx="4" class="ams-panel-plot-bg" fill="#edf1fa"/>';
-    for (let i = 0; i <= 3; i++) {
-      const v = axisMax * i / 3, y = Y(v / axisMax);
+    let grid = '<rect x="' + left + '" y="' + top + '" width="' + plotW + '" height="' + plotH + '" rx="4" class="ams-panel-plot-bg" fill="#edf1fa"/>' +
+      '<text x="' + left + '" y="14" class="ams-panel-axis" fill="#0066ff">SMS</text>' +
+      '<text x="' + (w - right) + '" y="14" text-anchor="end" class="ams-panel-axis" fill="#ff3d6e">' + esc(moneyName) + '</text>';
+    for (let i = 0; i <= 4; i++) {
+      const frac = i / 4, y = Y(frac);
+      const smsV = smsAxis.max * frac;
+      const earnV = earnAxis.max * frac;
       grid += '<line x1="' + left + '" x2="' + (w - right) + '" y1="' + y.toFixed(2) + '" y2="' + y.toFixed(2) + '" class="ams-panel-grid" stroke="#d9e2f4"/>' +
-        '<text x="' + (left - 8) + '" y="' + (y + 4).toFixed(2) + '" text-anchor="end" class="ams-panel-axis">' + esc(count(Math.round(v))) + '</text>';
+        '<text x="' + (left - 8) + '" y="' + (y + 4).toFixed(2) + '" text-anchor="end" class="ams-panel-axis">' + esc(count(Math.round(smsV))) + '</text>' +
+        '<text x="' + (w - right + 8) + '" y="' + (y + 4).toFixed(2) + '" text-anchor="start" class="ams-panel-axis">' + esc(amsMoney(Number(earnV.toFixed(6)))) + '</text>';
     }
     grid += '<line x1="' + left + '" x2="' + (w - right) + '" y1="' + (top + plotH) + '" y2="' + (top + plotH) + '" class="ams-panel-baseline" stroke="#c2cfe9"/>';
     const bars = rows.map(function (r, i) {
       const cx = left + groupW * i + groupW / 2;
-      const hs = Math.max(0, (r.sms / 10) / axisMax) * plotH;
-      const he = Math.max(0, r.earn / axisMax) * plotH;
+      const hs = Math.max(0, r.sms / smsAxis.max) * plotH;
+      const he = Math.max(0, r.earn / earnAxis.max) * plotH;
+      const smsTop = top + plotH - hs;
+      const earnTop = top + plotH - he;
+      const hitTop = Math.min(smsTop, earnTop);
+      const tipText = r.date + ' · ' + count(r.sms) + ' SMS · ' + amsMoney(r.earn) + ' ' + moneyName.toLowerCase();
+      const tipAttrs = ' data-tip="' + esc(tipText) + '" data-cx="' + cx.toFixed(2) + '" data-top="' + hitTop.toFixed(2) + '"';
       const day = String(r.date).slice(8).replace(/^0/, '');
-      return '<rect x="' + (cx - barW - 2).toFixed(2) + '" y="' + (top + plotH - hs).toFixed(2) + '" width="' + barW.toFixed(2) + '" height="' + hs.toFixed(2) + '" rx="2" fill="#0066ff"><title>' + esc(r.date + ' · ' + count(r.sms) + ' SMS') + '</title></rect>' +
-        '<rect x="' + (cx + 2).toFixed(2) + '" y="' + (top + plotH - he).toFixed(2) + '" width="' + barW.toFixed(2) + '" height="' + he.toFixed(2) + '" rx="2" fill="#ff3d6e"><title>' + esc(r.date + ' · ' + amsMoney(r.earn) + ' ' + moneyName.toLowerCase()) + '</title></rect>' +
+      return '<rect class="ams-panel-bar"' + tipAttrs + ' x="' + (cx - barW - 2).toFixed(2) + '" y="' + smsTop.toFixed(2) + '" width="' + barW.toFixed(2) + '" height="' + hs.toFixed(2) + '" rx="2" fill="#0066ff"><title>' + esc(tipText) + '</title></rect>' +
+        '<rect class="ams-panel-bar"' + tipAttrs + ' x="' + (cx + 2).toFixed(2) + '" y="' + earnTop.toFixed(2) + '" width="' + barW.toFixed(2) + '" height="' + he.toFixed(2) + '" rx="2" fill="#ff3d6e"><title>' + esc(tipText) + '</title></rect>' +
+        '<rect class="ams-panel-bar-hit"' + tipAttrs + ' x="' + (left + groupW * i).toFixed(2) + '" y="' + top + '" width="' + groupW.toFixed(2) + '" height="' + plotH + '" fill="#000" fill-opacity="0" style="pointer-events:all" tabindex="0"><title>' + esc(tipText) + '</title></rect>' +
         '<text x="' + cx.toFixed(2) + '" y="' + (h - 10) + '" text-anchor="middle" class="ams-panel-axis">' + esc(day) + '</text>';
     }).join('');
     host.innerHTML = head + totals +
-      '<svg class="ams-panel-chart-svg" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Daily SMS volume and ' + esc(moneyName.toLowerCase()) + ' for the last ' + rows.length + ' UK reporting days. Daily values are listed below the chart.">' +
-      grid + bars + '</svg>' +
+      '<div class="ams-panel-chart-wrap"><svg class="ams-panel-chart-svg" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Daily SMS volume and ' + esc(moneyName.toLowerCase()) + ' for the last ' + rows.length + ' UK reporting days. Daily values are listed below the chart.">' +
+      grid + bars + '</svg><div class="ams-panel-tip" role="tooltip"></div></div>' +
       '<details class="ams-panel-chart-values"><summary>View daily values</summary><table><thead><tr><th>Date (UK)</th><th>SMS</th><th>' + esc(moneyName) + '</th></tr></thead><tbody>' +
       rows.map(function (r) { return '<tr><td>' + esc(r.date) + '</td><td>' + esc(count(r.sms)) + '</td><td>' + esc(amsMoney(r.earn)) + '</td></tr>'; }).join('') +
       '</tbody></table></details></div>';
+    const tip = host.querySelector('.ams-panel-tip');
+    let tipPinnedUntil = 0;
+    const showTip = function (el, pin) {
+      if (!tip || !el) return;
+      if (pin) tipPinnedUntil = Date.now() + 2500;
+      tip.textContent = el.getAttribute('data-tip') || '';
+      const cx = Number(el.getAttribute('data-cx')) || 0;
+      const ty = Number(el.getAttribute('data-top'));
+      const xFrac = cx / w;
+      tip.style.left = (xFrac * 100) + '%';
+      tip.style.top = ((Number.isFinite(ty) ? ty : top) / h * 100) + '%';
+      tip.style.transform = xFrac > 0.78 ? 'translate(-94%,-115%)' : xFrac < 0.22 ? 'translate(-6%,-115%)' : 'translate(-50%,-115%)';
+      tip.style.display = 'block';
+    };
+    const hideTip = function () {
+      if (Date.now() < tipPinnedUntil) return;
+      if (tip) tip.style.display = 'none';
+    };
+    host.querySelectorAll('[data-tip]').forEach(function (el) {
+      el.addEventListener('mouseenter', function () { showTip(el, false); });
+      el.addEventListener('focus', function () { showTip(el, false); });
+      el.addEventListener('click', function () { showTip(el, true); });
+      el.addEventListener('touchstart', function () { showTip(el, true); }, { passive: true });
+      el.addEventListener('mouseleave', hideTip);
+      el.addEventListener('blur', hideTip);
+    });
   }
 
   function amsRail(hostId, items) {
