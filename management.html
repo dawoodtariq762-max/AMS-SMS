@@ -2712,6 +2712,37 @@ function exportCarrierLogsCsv(){
 /* =============== DATABASE BACKUPS =============== */
 let backupRows=[];
 function formatBytes(bytes){bytes=Number(bytes||0);if(bytes<1024)return bytes+' B';if(bytes<1024*1024)return (bytes/1024).toFixed(1)+' KB';return (bytes/1024/1024).toFixed(2)+' MB';}
+function backupKindBadge(b){
+  const k=String(b.kind||'');
+  if(!k||k==='unknown') return '';
+  const label=k==='business'?'business data':(k==='full'?'full image':'unreadable');
+  return ` <span class="muted" style="font-size:11px">· ${label}</span>`;
+}
+function backupActionButton(b){
+  const file=String(b.file||'');
+  const icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+  if(b.kind==='business'){
+    return `<button type="button" class="ams-btn ams-amber" onclick="verifyBackupFile('${file}')" data-tip="Restore test (isolated)" title="Restore test (isolated)" aria-label="Restore test (isolated)">${icon}</button>`;
+  }
+  if(b.kind==='full'){
+    return `<button type="button" class="ams-btn ams-amber" onclick="restoreBackupFile('${file}')" data-tip="Restore backup" title="Restore backup" aria-label="Restore backup">${icon}</button>`;
+  }
+  /* unreadable/invalid file: no destructive action offered */
+  return `<button type="button" class="ams-btn" disabled data-tip="File is not a readable backup" title="File is not a readable backup" aria-label="File is not a readable backup">${icon}</button>`;
+}
+async function verifyBackupFile(file){
+  try{
+    const r=await API.post('/backups/'+encodeURIComponent(file)+'/verify',{});
+    const rows=(r.comparisons||[]).filter(c=>['Account count','SMS count','Number-wise SMS count','Range-wise SMS count','Account-wise SMS count','SMS payout total','Ledger row count','Ledger amount total','Payment request count'].includes(c.metric));
+    const fmt=v=>{
+      if(v===null||v===undefined) return '—';
+      if(typeof v==='object') return (v.rows!==undefined?`${v.rows} rows`:'—')+(v.amount_total?` · ${v.amount_total}`:'');
+      return String(v);
+    };
+    const body=rows.map(c=>`${c.metric}: ${fmt(c.restored)}${c.matches_source===true?'':(c.matches_source===false?'  (live DB moved on since backup)':'')}`).join('\n');
+    alert(`Restore test ${r.ok?'PASSED':'FAILED'} — live database NOT modified.\n\nFile: ${r.backup.file}\nIntegrity: ${r.integrity_check}\nVersion: ${r.version_marker} · ${r.timestamp_marker}\nExcluded tables present: ${r.excluded_tables_present.length}\n\n${body}`);
+  }catch(e){alert('❌ '+e.message)}
+}
 async function loadBackups(){
   try{
     const data=await API.get('/backups');
@@ -2722,8 +2753,8 @@ async function loadBackups(){
     const bf=document.getElementById('bkFolder'); if(bf)bf.textContent=(data.backup_dir||'—').split('/').slice(-2).join('/');
     const bd=document.getElementById('bkDbFile'); if(bd)bd.textContent=(data.db_file||'—').split('/').slice(-2).join('/');
     const body=document.getElementById('backupBody'); if(!body)return;
-    body.innerHTML=backupRows.map(b=>`<tr><td class="mono">${b.file}</td><td>${(b.created_at||'').slice(0,19)}</td><td>${(b.modified_at||'').slice(0,19)}</td><td>${formatBytes(b.size)}</td><td style="white-space:nowrap"><button type="button" class="ams-btn ams-blue"  onclick="downloadBackup('${b.file}')" data-tip="Download" title="Download" aria-label="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button> <button type="button" class="ams-btn ams-amber"  onclick="restoreBackupFile('${b.file}')" data-tip="Restore backup" title="Restore backup" aria-label="Restore backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button> <button type="button" class="ams-btn danger"  onclick="deleteBackupFile('${b.file}')" data-tip="Delete" title="Delete" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg></button></td></tr>`).join('')||`<tr><td colspan="5" class="muted" style="text-align:center;padding:20px">No backups found</td></tr>`;
-    document.getElementById('backupInfo').textContent=`${backupRows.length} backup file(s)`;
+    body.innerHTML=backupRows.map(b=>`<tr><td class="mono">${b.file}${backupKindBadge(b)}</td><td>${(b.created_at||'').slice(0,19)}</td><td>${(b.modified_at||'').slice(0,19)}</td><td>${formatBytes(b.size)}</td><td style="white-space:nowrap"><button type="button" class="ams-btn ams-blue"  onclick="downloadBackup('${b.file}')" data-tip="Download" title="Download" aria-label="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button> ${backupActionButton(b)} <button type="button" class="ams-btn danger"  onclick="deleteBackupFile('${b.file}')" data-tip="Delete" title="Delete" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg></button></td></tr>`).join('')||`<tr><td colspan="5" class="muted" style="text-align:center;padding:20px">No backups found</td></tr>`;
+    const ret=data.retention||{};document.getElementById('backupInfo').textContent=`${backupRows.length} backup file(s) · business data only (accounts, SMS, payments) · retention: ${ret.months||5} calendar months`;
   }catch(e){alert('❌ '+e.message)}
 }
 async function createBackupNow(){

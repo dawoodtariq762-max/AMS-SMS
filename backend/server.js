@@ -6997,7 +6997,15 @@ function getAdminSecurityCode(){
 /* ============ DATABASE BACKUPS ============ */
 app.get('/api/backups', authRequired, requireRole('admin'), (req, res) => {
   try {
-    res.json({ backups: backup.listBackups(db), backup_dir: backup.getBackupDir(db), db_file: db.getDbFile ? db.getDbFile() : '' });
+    res.json({
+      backups: backup.listBackups(db),
+      backup_dir: backup.getBackupDir(db),
+      db_file: db.getDbFile ? db.getDbFile() : '',
+      /* Business-data backup contract (accounts + SMS + payments only). */
+      backup_format: backup.BACKUP_FORMAT,
+      backup_version: backup.BACKUP_VERSION,
+      retention: backup.getRetentionInfo(),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/backups/create', authRequired, requireRole('admin'), (req, res) => {
@@ -7006,7 +7014,10 @@ app.post('/api/backups/create', authRequired, requireRole('admin'), (req, res) =
     backup.cleanupOldBackups(db);
     logAction(req, 'create_database_backup', 'backup', b.file);
     res.json({ ok: true, backup: b });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    /* A backup already in progress is a conflict, not a server failure. */
+    res.status(e.code === 'BACKUP_BUSY' ? 409 : 500).json({ error: e.message });
+  }
 });
 app.get('/api/backups/latest/download', authRequired, requireRole('admin'), (req, res) => {
   try {
@@ -7029,7 +7040,21 @@ app.post('/api/backups/:file/restore', authRequired, requireRole('admin'), (req,
     syncRangeProviderLinks();
     logAction(req, 'restore_database_backup', 'backup', result);
     res.json(result);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    /* A business-data backup can never replace the live database (its excluded
+       tables are not inside it) — that is a 409, not a server error. */
+    res.status(e.status || 500).json({ error: e.message, kind: e.kind || undefined });
+  }
+});
+/* Restore test: copy the business backup into an isolated temporary database,
+   run integrity_check, compare account/SMS/payment/number/range totals and
+   confirm the excluded tables are absent. The live database is never modified. */
+app.post('/api/backups/:file/verify', authRequired, requireRole('admin'), (req, res) => {
+  try {
+    const result = backup.verifyRestoreTest(db, req.params.file);
+    logAction(req, 'verify_database_backup', 'backup', { file: req.params.file, ok: result.ok });
+    res.json(result);
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 app.delete('/api/backups/:file', authRequired, requireRole('admin'), (req, res) => {
   try {
